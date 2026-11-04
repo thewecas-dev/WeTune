@@ -554,8 +554,9 @@ private val TimeStyle = Type.caption.copy(fontSize = 12.sp, fontFeatureSettings 
 private fun QualityTag(onClick: () -> Unit) {
     val searching = AudioInfo.upgrade == "searching"
     val pulse by rememberInfiniteTransition(label = "upgrade").animateFloat(0.35f, 0.85f, infiniteRepeatable(tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "a")
-    // the version playing now, always (badge + codec · bitrate); while a better copy is being looked for, "· Upgrading…" after it
-    val text = AudioInfo.label
+    // the version playing now, always: badge + format only ("HQ AAC", "LOSSLESS FLAC"; details are in the Audio sheet);
+    // while a better copy is being looked for, "· Upgrading…" after it
+    val text = AudioInfo.hifiNow?.first ?: AudioInfo.codecName
     val badge = AudioInfo.hifiNow?.let { (_, bits, rate) -> if (bits > 16 || rate > 48_000) "HI-RES" else "LOSSLESS" }
         ?: AudioInfo.kbps?.let { if (it >= 256) "HQ" else "SQ" }
     if (text == null && !searching) return
