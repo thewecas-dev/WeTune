@@ -193,9 +193,12 @@ fun GlassPlayer(ui: PlayerUi) {
         // Bottom: title · lyric line · seek · times and quality · transport · volume · lyrics | sleep+output | queue · device.
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(controlsH).navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 8.dp)) {
             Spacer(Modifier.weight(1f).heightIn(min = 8.dp))
+            // three-line lyrics sit above the title, centered; the one-line lyric sits between the title and the seek bar
+            val stack = Settings.inlineStyle == "stack"
+            if (stack) { LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() }); Spacer(Modifier.height(10.dp)) }
             TitleRow(ui) { pipeline = true }
-            LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() })
-            Spacer(Modifier.height(if (Settings.inlineStyle == "stack") 10.dp else 18.dp)) // three lyric lines need the room
+            if (!stack) LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() })
+            Spacer(Modifier.height(18.dp))
             GlassSeek(ui, onQuality = { audioOptions = true }) { seekDrag = it }
             Spacer(Modifier.weight(0.6f).heightIn(min = 10.dp))
             Transport()
