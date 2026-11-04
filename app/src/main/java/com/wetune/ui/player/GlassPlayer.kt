@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -118,6 +119,10 @@ fun GlassPlayer(ui: PlayerUi) {
     val paneBlur = if (paneOpen) 44.dp else 0.dp
     val paneDim by animateFloatAsState(if (paneOpen) 0.45f else 0f, tween(400), label = "paneDim")
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    // where the cover may start: under the status bar or camera cutout, the grabber and "Playing from", plus a gap
+    var headerH by remember { mutableStateOf(64.dp) }
+    val cutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
+    val clearTop = maxOf(statusTop, cutTop) + headerH + 8.dp
     var seekDrag by remember { mutableStateOf<Float?>(null) } // while dragging the seek bar: where you'd land
     var coverMenu by remember { mutableStateOf(false) }
     var pipeline by remember { mutableStateOf(false) }
@@ -141,7 +146,7 @@ fun GlassPlayer(ui: PlayerUi) {
         // A new song crossfades in; dragging sideways moves only the cover (not the background) to show the skip coming.
         Crossfade(ui.t, Modifier.blur(paneBlur, BlurredEdgeTreatment.Rectangle), animationSpec = tween(650), label = "song") { t ->
             Box(Modifier.fillMaxSize()) {
-                if (Settings.npStyle == "bleed") CoverBackdrop(ui.pal, w, split, statusTop, coverAlpha, t) { swipe.value * 0.5f }
+                if (Settings.npStyle == "bleed") CoverBackdrop(ui.pal, w, split, clearTop, coverAlpha, t) { swipe.value * 0.5f }
                 else StyledBackdrop(Settings.npStyle, ui.pal, t, split)
             }
         }
@@ -160,14 +165,16 @@ fun GlassPlayer(ui: PlayerUi) {
         if (open) ImmersivePane(ui, onQuality = { audioOptions = true }) { seekDrag = it } else Box(Modifier.fillMaxSize()) {
 
         // Top 60%: the corner buttons. On the cover: swipe to skip, long-press for a menu.
-        Column(Modifier.fillMaxWidth().height(split).statusBarsPadding().displayCutoutPadding().padding(start = 16.dp, end = 16.dp, top = 6.dp)) {
+        Column(Modifier.fillMaxWidth().height(split).statusBarsPadding().displayCutoutPadding().padding(start = 16.dp, end = 16.dp)) {
+          // the header (grabber + Playing from) is measured so the cover never starts underneath it
+          Column(Modifier.onSizeChanged { headerH = with(density) { it.height.toDp() } }) {
             // grabber: tap to close, or drag down (the whole player follows a downward drag)
             Box(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).pressable(scale = 0.95f, onClick = ui.close)
-                    .semantics { contentDescription = "Close player" }.padding(vertical = 8.dp),
+                    .semantics { contentDescription = "Close player" }.padding(top = 4.dp, bottom = 6.dp),
                 Alignment.Center,
             ) { Box(Modifier.size(40.dp, 5.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.55f))) }
-            Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 // (no close button: swipe down or Back closes the player)
                 // what the queue was started from: "PLAYING FROM PLAYLIST" over "Tamil Hits 2025"
                 Column(Modifier.weight(1f).heightIn(min = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -177,6 +184,7 @@ fun GlassPlayer(ui: PlayerUi) {
                     }
                 }
             }
+          }
             SleepBadge(Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp))
             Box(
                 Modifier.weight(1f).fillMaxWidth()

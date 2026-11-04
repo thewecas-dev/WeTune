@@ -89,21 +89,22 @@ private fun rememberCover(url: String?): ImageBitmap? {
  * with the space around it filled per [Settings.npFill]. Blur mode keeps the earlier look (8% side crop).
  */
 @Composable
-fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, statusTop: Dp, coverAlpha: Float, t: Track, coverShift: () -> Float = { 0f }) {
+fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, t: Track, coverShift: () -> Float = { 0f }) {
+    // [clearTop]: bottom of the grabber and "Playing from" header; the cover always starts below it
     // (only stable inputs, so the backdrop skips the 4-times-a-second recompositions from the playback position)
     val floor = lerp(pal.sea, Color.Black, 0.6f)
     val mode = Settings.npFill
     val img = rememberCover(t.art)
 
     when {
-        mode == "blur" || img == null -> BlurBackdrop(t, w, split, statusTop, coverAlpha)
+        mode == "blur" || img == null -> BlurBackdrop(t, w, split, clearTop, coverAlpha)
         else -> {
             // Whole cover, full width; wide thumbnails stay whole too. Sits right on top of the controls.
             // Placed to never overlap the top buttons or the title: if the full-width cover fits between them it sits
             // on the title and the stretch fills above; if not, it shrinks to fill that space exactly (no top stretch)
             // and blurred cover fills the slim sides.
             val ratio = img.height.toFloat() / img.width
-            val topLimit = statusTop + 56.dp
+            val topLimit = clearTop
             val room = (split - topLimit).coerceAtLeast(120.dp)
             val fits = w * SideScale * ratio <= room
             val coverW = if (fits) w * SideScale else room / ratio
@@ -161,7 +162,7 @@ fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, statusTop: Dp, coverAlpha: 
     )
     if (shadeTop > 0f) Box(
         Modifier.fillMaxSize().drawBehind {
-            drawRect(Brush.verticalGradient(0f to ink.copy(alpha = shadeTop), 1f to ink.copy(alpha = 0f), startY = 0f, endY = (statusTop + 120.dp).toPx()))
+            drawRect(Brush.verticalGradient(0f to ink.copy(alpha = shadeTop), 1f to ink.copy(alpha = 0f), startY = 0f, endY = (clearTop + 64.dp).toPx()))
         },
     )
     // A light touch of the cover's dark shade at the very top, behind the status bar.
@@ -250,10 +251,10 @@ private fun DrawScope.extend(img: ImageBitmap, top: Float, h: Float, mirror: Boo
 
 /** The earlier look: cover 14% wider than the screen (6% cropped per side, same as the others) over a zoomed blur of itself. */
 @Composable
-private fun BlurBackdrop(t: Track, w: Dp, split: Dp, statusTop: Dp, coverAlpha: Float) {
-    // on short screens the cover shrinks so it never runs under the title (it may tuck 10% under the top buttons)
-    val size = minOf(w * SideScale, (split - statusTop - 56.dp) / 0.95f).coerceAtLeast(120.dp)
-    val top = maxOf(split + size * 0.05f - size, statusTop + 56.dp - size * 0.1f)
+private fun BlurBackdrop(t: Track, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float) {
+    // on short screens the cover shrinks so it never runs under the title, nor up under the header
+    val size = minOf(w * SideScale, (split - clearTop) / 0.95f).coerceAtLeast(120.dp)
+    val top = maxOf(split + size * 0.05f - size, clearTop)
     val coverMod = Modifier.offset(y = top).fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally, unbounded = true).requiredSize(size)
     Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.6f; scaleY = 1.6f }.blur(70.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.85f)
     Cover(t, coverMod.graphicsLayer { scaleX = 1.15f; scaleY = 1.15f }.blur(40.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.9f)
