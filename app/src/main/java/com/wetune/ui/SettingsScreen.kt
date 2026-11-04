@@ -196,9 +196,6 @@ private fun AppearancePage() {
                 },
                 Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
             )
-            if (Settings.npStyle == "strips") {
-                Txt("Strips", Modifier.padding(start = 4.dp, top = 16.dp), style = Type.label)
-            }
             if (Settings.npStyle == "bleed") {
                 Txt("Around the cover", Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp), style = Type.label)
                 Segmented(FillModes, Settings.npFill, { Settings.npFill = it })
@@ -211,11 +208,6 @@ private fun AppearancePage() {
                     Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
                 )
             }
-        }
-        if (Settings.npStyle == "strips") {
-            SettingSlider("Number of strips", "${Settings.stripCount}", (Settings.stripCount - 6) / 24f) { Settings.stripCount = 6 + Math.round(it * 24) }
-            SettingSlider("Blur", "${Settings.stripBlur}", Settings.stripBlur / 100f) { Settings.stripBlur = Math.round(it * 20) * 5 }
-            Btn("Reset strips", { Settings.stripCount = Settings.STRIP_COUNT; Settings.stripBlur = Settings.STRIP_BLUR }, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), kind = BtnKind.Secondary)
         }
     }
     Group("Display") {
