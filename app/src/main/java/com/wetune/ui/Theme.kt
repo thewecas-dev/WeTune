@@ -63,6 +63,9 @@ object Tokens {
 }
 
 /** Geist, bundled as one variable font; each weight is a variation of the same file. */
+/** For lyrics on Now Playing: a slim display serif that sets them apart from the Geist interface text. */
+val LyricFont = FontFamily(Font(R.font.instrument_serif))
+
 @OptIn(ExperimentalTextApi::class)
 val Geist = FontFamily(
     listOf(FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold, FontWeight.Bold, FontWeight.ExtraBold).map { w ->

@@ -62,7 +62,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.displayCutout
@@ -463,7 +462,7 @@ private fun LyricLineContent(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: 
             // optional: the inline line in Latin letters for Tamil, Hindi, Telugu… (the full lyrics panel is unchanged)
         val shownLine = line?.let { if (Settings.romanInline) romanize(it) ?: it else it }
         val sung = lines.getOrNull(i)?.takeIf { it.text.trim() == line?.trim() } // this line's timing (not for one that's leaving)
-        val inlineStyle = Type.body.copy(fontSize = 21.sp, lineHeight = 31.sp, fontWeight = FontWeight.SemiBold, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center) // same as the three-line current line; italic marks it as lyrics
+        val inlineStyle = Type.body.copy(fontFamily = LyricFont, fontSize = 25.sp, lineHeight = 31.sp, fontWeight = FontWeight.Normal, textAlign = TextAlign.Center) // same as the three-line current line; the serif marks it as lyrics
         if (shownLine != null && sung != null && Settings.inlineWords && previewMs == null)
             InlineSung(sung, shownLine, ui.pos + Lyrics.offset(ui.t.id), inlineStyle, Modifier.weight(1f, fill = false))
         else if (shownLine != null) Txt(shownLine, Modifier.weight(1f, fill = false), style = inlineStyle, color = Color.White, maxLines = 2)
@@ -709,8 +708,8 @@ private fun InlineSung(line: Lyrics.Line, shown: String, pos: Long, style: andro
 private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?) {
     val i = currentLine(lines, previewMs ?: ui.pos, Lyrics.offset(ui.t.id))
     fun text(k: Int) = lines.getOrNull(k)?.text?.takeIf { it.isNotBlank() }?.let { if (Settings.romanInline) romanize(it) ?: it else it }
-    val dim = Type.body.copy(fontSize = 17.sp, lineHeight = 27.sp, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
-    val main = Type.body.copy(fontSize = 21.sp, lineHeight = 31.sp, fontWeight = FontWeight.SemiBold, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
+    val dim = Type.body.copy(fontFamily = LyricFont, fontSize = 20.sp, lineHeight = 27.sp, fontWeight = FontWeight.Normal, textAlign = TextAlign.Center)
+    val main = Type.body.copy(fontFamily = LyricFont, fontSize = 25.sp, lineHeight = 31.sp, fontWeight = FontWeight.Normal, textAlign = TextAlign.Center)
     AnimatedContent(
         i, Modifier.fillMaxWidth().padding(top = 6.dp).pressable(scale = 0.98f) { ui.toggle("lyrics") },
         transitionSpec = {
