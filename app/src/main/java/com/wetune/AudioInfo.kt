@@ -62,12 +62,12 @@ object AudioInfo {
         if (state == "searching") main.postDelayed({ if (upgrades[id] == "searching") upgrades[id] = "none" }, 15_000)
     }
 
-    /** What happened to each song's quality, in order (started on…, found…, switched…), for the pipeline sheet. */
+    /** Each song's quality over time: song position (ms) → "source · quality" it played, for the pipeline sheet. */
     private val histories = mutableStateMapOf<String, List<Pair<Long, String>>>()
     val history: List<Pair<Long, String>> get() = Playback.current?.id?.let { histories[it] }.orEmpty()
-    fun event(id: String, text: String) = main.post {
+    fun event(id: String, positionMs: Long, text: String) = main.post {
         val h = histories[id].orEmpty()
-        if (h.lastOrNull()?.second != text) histories[id] = (h + (System.currentTimeMillis() to text)).takeLast(20)
+        if (h.lastOrNull()?.second != text) histories[id] = (h + (positionMs to text)).takeLast(20)
     }
 
     /** Lossless copy details per song (codec, bit depth, sample rate) when it plays from an add-on. */

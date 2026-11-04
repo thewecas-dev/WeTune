@@ -8,6 +8,7 @@ import com.wetune.sources.Source
 import com.wetune.sources.Subsonic
 import com.wetune.youtube.YouTube
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Future
 
 /**
  * Turns a track into a playable URL, with a short cache (YouTube URLs expire after ~6h).
@@ -29,9 +30,6 @@ object Resolver {
     private val losslessInfo = ConcurrentHashMap<String, String>()
     /** Which copy each YouTube song last played from ("lossless" | "saavn"), so a failing copy can be dropped. */
     private val using = ConcurrentHashMap<String, String>()
-    /** Byte rate of the copy each YouTube song resolved to last, for sizing a pre-fill (FLAC ≈ 70% of raw PCM). */
-    private val byteRate = ConcurrentHashMap<String, Long>()
-    fun bytesPerSec(ytRef: String): Long? = byteRate[ytRef]
 
     /** What the playing copy of YouTube song [ytRef] is, for the pipeline: "Lossless add-on · Qobuz […]", "JioSaavn · 320 kbps"; null = YouTube itself. */
     fun copyName(ytRef: String): String? = when (using[ytRef]) {
@@ -60,30 +58,38 @@ object Resolver {
     private fun wantsMax() = level() >= 2 && Settings.saavnOn
     private fun wantsLossless() = level() >= 3 && Addons.enabled.isNotEmpty()
 
-    /** Blocking. The playable address for a track: the best copy known within the ceiling, else its own source. */
+    /**
+     * Blocking. The playable address for a track: the best copy allowed by the ceiling.
+     * A YouTube song whose copies aren't known yet waits up to [START_WAIT] ms while the searches run (alongside
+     * YouTube's own lookup), then starts on the best one found — so it never has to switch mid-song. Anything found
+     * later is kept for the song's next play. Songs coming up in the queue are matched ahead of time and start at once.
+     */
     fun streamUrl(source: String, ref: String, high: Boolean = highQuality(), title: String? = null, artist: String? = null, durationMs: Long = 0): String {
         val key = "$source:$ref:$high:${wantsMax()}:${wantsLossless()}"
         cache[key]?.let { (url, expires) -> if (expires > System.currentTimeMillis()) return url }
         val climbs = source == "yt" && title != null
         if (source == "yt") UpgradeLog.add("resolve $ref level=${level()} hints=${title != null} 320=${state(saavnMatch, ref)} lossless=${state(losslessMatch, ref)}")
-        if (climbs) {
-            // already matched: play the best copy straight away
-            bestKnown(ref, high)?.let { (url, ttl) -> cache[key] = url to System.currentTimeMillis() + ttl; return url }
-            // otherwise start on YouTube now and look for better copies in the background
+        if (!climbs) return source(source).streamUrl(ref, high).also { cache[key] = it to System.currentTimeMillis() + TTL }
+
+        bestKnown(ref, high)?.let { (url, ttl) -> cache[key] = url to System.currentTimeMillis() + ttl; return url }
+        if (needsSearch(ref) || inflight.containsKey(ref)) {
+            val id = "yt:$ref"
+            AudioInfo.upgrading(id, "searching")
+            val (lossless, saavn) = searches(ref, title!!, artist.orEmpty(), durationMs)
+            val yt = worker.submit<String> { source(source).streamUrl(ref, high) }
+            val deadline = System.currentTimeMillis() + START_WAIT
+            fun left() = (deadline - System.currentTimeMillis()).coerceAtLeast(1)
+            runCatching { saavn?.get(left(), java.util.concurrent.TimeUnit.MILLISECONDS) }
+            runCatching { lossless?.get(left(), java.util.concurrent.TimeUnit.MILLISECONDS) }
+            bestKnown(ref, high)?.let { (url, ttl) -> yt.cancel(true); cache[key] = url to System.currentTimeMillis() + ttl; return url }
+            AudioInfo.upgrading(id, "none")
+            return yt.get().also { cache[key] = it to System.currentTimeMillis() + TTL }
         }
-        if (climbs) AudioInfo.event("yt:$ref", "Started on YouTube (${if (high) "high" else "data saver"})")
-        if (climbs && needsSearch(ref)) matchInBackground(ref, title!!, artist.orEmpty(), durationMs, high)
-        val url = source(source).streamUrl(ref, high)
-        cache[key] = url to System.currentTimeMillis() + TTL
-        // the background search often finishes while YouTube is still answering; don't let the YouTube address win.
-        // (saved first, then checked: a match landing after this check is followed by forget(), which clears it)
-        if (climbs) bestKnown(ref, high)?.let { (better, ttl) ->
-            UpgradeLog.add("copy for $ref arrived during resolve; using it")
-            cache[key] = better to System.currentTimeMillis() + ttl
-            return better
-        }
-        return url
+        return source(source).streamUrl(ref, high).also { cache[key] = it to System.currentTimeMillis() + TTL }
     }
+
+    /** How long a not-yet-matched song waits for its better copies before starting on YouTube. */
+    private const val START_WAIT = 3_000L
 
     private fun state(m: Map<String, String>, ref: String) = m[ref]?.let { if (it.isEmpty()) "none" else "found" } ?: "unknown"
 
@@ -95,9 +101,7 @@ object Resolver {
         if (wantsLossless()) losslessMatch[ref]?.takeIf { it.isNotEmpty() }?.let { m ->
             runCatching { Addons.stream(m) }.getOrNull()?.let { s ->
                 using[ref] = "lossless"
-                byteRate[ref] = s.bitDepth.coerceAtLeast(16).toLong() * s.sampleRate.coerceAtLeast(44_100) * 2 / 8 * 7 / 10
                 AudioInfo.lossless(id, s.codec, s.bitDepth, s.sampleRate)
-                AudioInfo.event(id, "Lossless copy from ${Addons.nameOf(m) ?: "an add-on"} (${listOfNotNull(s.codec, s.bitDepth.takeIf { it > 0 }?.let { "$it-bit" }, s.sampleRate.takeIf { it > 0 }?.let { "${AudioInfo.formatKhz(it)} kHz" }).joinToString(" · ")})")
                 losslessInfo[ref]?.let { AudioInfo.matched(id, it) }
                 AudioInfo.upgrading(id, "upgraded")
                 return s.url to LOSSLESS_TTL
@@ -106,11 +110,9 @@ object Resolver {
         if (wantsMax()) saavnMatch[ref]?.takeIf { it.isNotEmpty() }?.let { m ->
             runCatching { JioSaavn.streamUrl(m, high) }.getOrNull()?.let { url ->
                 using[ref] = "saavn"
-                byteRate[ref] = 40_000L
                 AudioInfo.lossless(id, null, 0, 0)
-                AudioInfo.event(id, "JioSaavn's 320 kbps copy")
                 saavnInfo[ref]?.let { AudioInfo.matched(id, it) }
-                AudioInfo.upgrading(id, if (wantsLossless() && !losslessMatch.containsKey(ref)) "searching" else "upgraded")
+                AudioInfo.upgrading(id, "upgraded")
                 return url to TTL
             }
         }
@@ -119,50 +121,37 @@ object Resolver {
 
     /** Called with a YouTube id once a better copy is found in the background (the player may switch to it). */
     var onUpgrade: ((ytRef: String) -> Unit)? = null
-    private val pending = ConcurrentHashMap.newKeySet<String>()
     private val worker = java.util.concurrent.Executors.newCachedThreadPool()
 
     /** Looks up a song's better copies ahead of time (no audio is downloaded), so it starts at its best when it plays. */
     fun prepare(ref: String, title: String, artist: String, durationMs: Long) {
-        if (needsSearch(ref)) matchInBackground(ref, title, artist, durationMs, highQuality())
+        if (needsSearch(ref)) searches(ref, title, artist, durationMs)
     }
 
-    /**
-     * Searches JioSaavn and the add-ons at the same time and upgrades once, straight to the best copy found: it waits up
-     * to 6 s for a lossless answer before settling for 320 kbps (add-on servers can be slow to wake); a lossless copy
-     * that turns up later still upgrades the song (or its next play).
-     */
-    private fun matchInBackground(ref: String, title: String, artist: String, durationMs: Long, high: Boolean) {
-        if (!pending.add(ref)) return
-        AudioInfo.upgrading("yt:$ref", "searching")
-        worker.execute {
-            try {
-                val lossless = if (wantsLossless() && !losslessMatch.containsKey(ref)) worker.submit<Boolean> {
-                    UpgradeLog.add("searching add-ons for $ref: $title / $artist")
-                    losslessFind(ref, title, artist, durationMs).also { UpgradeLog.add("add-ons for $ref: ${if (it) "found " + losslessMatch[ref] else "no match"}") }
-                } else null
-                val saavn = if (wantsMax() && !saavnMatch.containsKey(ref)) worker.submit<Boolean> {
-                    UpgradeLog.add("searching JioSaavn for $ref: $title / $artist")
-                    saavnFind(ref, title, artist, durationMs).also { UpgradeLog.add("JioSaavn for $ref: ${if (it) "found" else "no match"}") }
-                } else null
-                val losslessInTime = lossless?.let { runCatching { it.get(6, java.util.concurrent.TimeUnit.SECONDS) }.getOrNull() }
-                runCatching { saavn?.get() }
-                if (lossless != null) AudioInfo.event("yt:$ref", when (losslessInTime) { true -> "Found lossless on ${losslessMatch[ref]?.let(Addons::nameOf)}"; false -> "No lossless copy on your add-ons"; null -> "Add-ons slow to answer; trying 320 kbps meanwhile" })
-                if (saavn != null) AudioInfo.event("yt:$ref", if (saavnMatch[ref].orEmpty().isNotEmpty()) "Found JioSaavn 320 kbps" else "No JioSaavn 320 kbps copy")
+    /** Searches running per YouTube id: (lossless, JioSaavn), each true when it found the same recording. */
+    private val inflight = ConcurrentHashMap<String, Pair<Future<Boolean>?, Future<Boolean>?>>()
+
+    /** Starts (or joins) the add-on and JioSaavn searches for a song; both run at the same time. */
+    private fun searches(ref: String, title: String, artist: String, durationMs: Long): Pair<Future<Boolean>?, Future<Boolean>?> =
+        inflight.computeIfAbsent(ref) {
+            val lossless = if (wantsLossless() && !losslessMatch.containsKey(ref)) worker.submit<Boolean> {
+                UpgradeLog.add("searching add-ons for $ref: $title / $artist")
+                runCatching { losslessFind(ref, title, artist, durationMs) }.getOrDefault(false)
+                    .also { UpgradeLog.add("add-ons for $ref: ${if (it) "found " + losslessMatch[ref] else "no match"}") }
+            } else null
+            val saavn = if (wantsMax() && !saavnMatch.containsKey(ref)) worker.submit<Boolean> {
+                UpgradeLog.add("searching JioSaavn for $ref: $title / $artist")
+                runCatching { saavnFind(ref, title, artist, durationMs) }.getOrDefault(false)
+                    .also { UpgradeLog.add("JioSaavn for $ref: ${if (it) "found" else "no match"}") }
+            } else null
+            // when both are done: songs further down the queue that were already loaded get reloaded at the better copy
+            worker.execute {
+                runCatching { lossless?.get() }; runCatching { saavn?.get() }
+                inflight.remove(ref)
                 if (losslessMatch[ref].orEmpty().isNotEmpty() || saavnMatch[ref].orEmpty().isNotEmpty()) onUpgrade?.invoke(ref)
-                if (lossless != null && losslessInTime == null && runCatching { lossless.get() }.getOrDefault(false)) {
-                    UpgradeLog.add("lossless for $ref arrived late; upgrading again")
-                    AudioInfo.event("yt:$ref", "Found lossless on ${losslessMatch[ref]?.let(Addons::nameOf)} (late)")
-                    onUpgrade?.invoke(ref)
-                }
-                if (losslessMatch[ref].orEmpty().isEmpty() && saavnMatch[ref].orEmpty().isEmpty()) AudioInfo.upgrading("yt:$ref", "none")
-            } catch (e: Throwable) {
-                UpgradeLog.add("search failed for $ref: $e")
-                AudioInfo.upgrading("yt:$ref", "none")
-            } finally { pending.remove(ref) }
+            }
+            lossless to saavn
         }
-    }
-
     /** Forgets the cached address of a song so the next load resolves it again (e.g. to pick up a better copy). */
     fun forget(source: String, ref: String) {
         cache.keys.removeAll { it.startsWith("$source:$ref:") }
@@ -205,7 +194,6 @@ object Resolver {
             "lossless" -> losslessMatch[ref] = ""
             "saavn" -> saavnMatch[ref] = ""
         }
-        AudioInfo.event("yt:$ref", "That copy failed to play; stepped down")
         AudioInfo.upgrading("yt:$ref", "none")
     }
 }

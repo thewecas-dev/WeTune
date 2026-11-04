@@ -40,8 +40,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.runInterruptible
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -59,14 +57,13 @@ class PlaybackService : MediaSessionService() {
     private var radioFor: String? = null
     private var retried: String? = null // song already retried once after a playback error
     private val queueFile get() = File(filesDir, "queue.json")
-    private lateinit var cached: CacheDataSource.Factory
 
     override fun onCreate() {
         super.onCreate()
         // wetune://<source>?r=<ref> is resolved to a real URL on the loader thread, so network calls are fine here.
         // Cache sits under the resolver and is keyed by the real stream (YouTube video+format, JioSaavn file), so two
         // different streams for the same song can never be mixed into one cached file.
-        cached = CacheDataSource.Factory().setCache(App.cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(http))
+        val cached = CacheDataSource.Factory().setCache(App.cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(http))
             .setCacheKeyFactory { spec -> AudioInfo.cacheKey(spec.uri.toString()) }
         val upstream = ResolvingDataSource.Factory(cached) { spec ->
             if (spec.uri.scheme != "wetune") spec
@@ -172,6 +169,7 @@ class PlaybackService : MediaSessionService() {
             maybeAutoplay(t)
             updateLikeButton()
             prefetchNext()
+            recordStart(t)
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -226,7 +224,7 @@ class PlaybackService : MediaSessionService() {
             fade = kotlin.math.sin(minOf(fadeIn, fadeOut) * Math.PI.toFloat() / 2)
         }
         val sleep = if (sleepFadeFrom > 0) (1f - (System.currentTimeMillis() - sleepFadeFrom) / SLEEP_FADE_MS.toFloat()).coerceIn(0f, 1f) else 1f
-        player.volume = normGain * fade * sleep * switchGain
+        player.volume = normGain * fade * sleep
     }
 
     /** Applies speed, pitch and skip-silence when they change, and runs the fade clock while fades are on. */
@@ -289,16 +287,12 @@ class PlaybackService : MediaSessionService() {
         })
     }
 
-    /** Reloads the playing song through the resolver at the current quality level, at the same spot. */
+    /** A better connection or a higher ceiling: the songs coming up start at the new level (the playing one isn't swapped). */
     private fun upgradeCurrent(why: String) {
-        val item = player.currentMediaItem ?: return
-        val t = item.track() ?: return
-        if (t.source != "yt" && t.source != "saavn") return
-        if (item.localConfiguration?.uri?.scheme != "wetune" || switching == t.id) return
-        UpgradeLog.add("upgrade ${t.id}: $why")
-        switching = t.id
-        // any point in the song: same smooth swap (prefilled, brief dip) as a found copy
-        scope.launch { try { smoothSwitch(t.id, t, latestMs = Long.MAX_VALUE) } finally { switching = null; if (switchGain < 1f) { switchGain = 1f; applyVolume() } } }
+        UpgradeLog.add("level up: $why")
+        val next = player.currentMediaItemIndex + 1
+        if (next < player.mediaItemCount) player.getMediaItemAt(next).let { m -> m.track()?.let { Resolver.forget(it.source, it.ref) }; refreshed(m)?.let { player.replaceMediaItem(next, it) } }
+        prefetchNext()
     }
 
     /** Sends the play to YouTube once per song, after it actually starts playing. */
@@ -368,28 +362,17 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * The 320 kbps copy of the playing song was found after it had already started on YouTube: if we're still near the
-     * start, switch to it at the same spot (a brief reload); later in the song it just plays next time.
+     * A better copy of [id] was found in the background. The playing song is never swapped mid-song (any swap is
+     * audible); the copy is kept for its next play. A song further down the queue that the player already started
+     * loading is reloaded, so it begins on the better copy.
      */
     private fun upgradeToMatch(id: String) {
-        val item = player.currentMediaItem ?: return
-        val t = item.track() ?: return
-        UpgradeLog.add("copy found for $id; playing ${item.mediaId} at ${player.currentPosition} ms")
-        if (item.mediaId != id) {
-            // a song later in the queue (usually the next one, already preloaded from YouTube): reload it so it starts in 320 kbps
-            val i = (0 until player.mediaItemCount).firstOrNull { it != player.currentMediaItemIndex && player.getMediaItemAt(it).mediaId == id } ?: return
-            val m = player.getMediaItemAt(i)
-            m.track()?.let { Resolver.forget(it.source, it.ref) }
-            refreshed(m)?.let { player.replaceMediaItem(i, it) }
-            UpgradeLog.add("queued $id at #$i will play the 320 kbps copy")
-            return
-        }
-        if (player.currentPosition > 12_000) { AudioInfo.upgrading(id, "none"); AudioInfo.event(id, "Found too far into the song; the next play uses it"); return }
-        if (switching == id) return
-        switching = id
-        scope.launch {
-            try { smoothSwitch(id, t) } finally { switching = null; if (switchGain < 1f) { switchGain = 1f; applyVolume() } }
-        }
+        if (player.currentMediaItem?.mediaId == id) { AudioInfo.upgrading(id, "none"); return }
+        val i = (0 until player.mediaItemCount).firstOrNull { it != player.currentMediaItemIndex && player.getMediaItemAt(it).mediaId == id } ?: return
+        val m = player.getMediaItemAt(i)
+        m.track()?.let { Resolver.forget(it.source, it.ref) }
+        refreshed(m)?.let { player.replaceMediaItem(i, it) }
+        UpgradeLog.add("queued $id at #$i will start on its better copy")
     }
 
     /** The same item with a changed address, so the player loads it again (through the resolver, which now picks the better copy). */
@@ -399,49 +382,21 @@ class PlaybackService : MediaSessionService() {
         return m.buildUpon().setUri(u.appendQueryParameter("u", System.currentTimeMillis().toString()).build()).build()
     }
 
-    private var switching: String? = null
-    private var switchGain = 1f // the brief dip while swapping streams; part of applyVolume()
-
-    /**
-     * Swaps the playing song to its better copy without the stop-and-load: first the part of the new file around the
-     * playing spot is pulled into the cache (so the swap reads from the phone, not the network), then the volume dips
-     * for a moment, the stream is swapped at the same position, and the volume comes back once it's playing again.
-     */
-    private suspend fun smoothSwitch(id: String, t: Track, latestMs: Long = 20_000) {
-        val item = player.currentMediaItem ?: return
-        val uri = item.localConfiguration?.uri ?: return
-        val startAt = player.currentPosition
-        Resolver.forget(t.source, t.ref)
-        val prefilled = withContext(Dispatchers.IO) {
-            withTimeoutOrNull(8_000) {
-                runCatching {
-                    runInterruptible {
-                        val url = Resolver.streamUrl(t.source, t.ref, title = uri.getQueryParameter("t"), artist = uri.getQueryParameter("a"), durationMs = uri.getQueryParameter("d")?.toLongOrNull() ?: 0)
-                        // enough to cover where playback will be once this finishes, plus a few seconds
-                        val perSec = Resolver.bytesPerSec(t.ref) ?: 24_000L // YouTube ≈ 160 kbps
-                        val bytes = ((startAt / 1000 + 12) * perSec).coerceIn(512_000L, 8_000_000L)
-                        androidx.media3.datasource.cache.CacheWriter(cached.createDataSource(), androidx.media3.datasource.DataSpec(Uri.parse(url), 0, bytes), null, null).cache()
-                        bytes
-                    }
-                }.onFailure { UpgradeLog.add("prefill for $id failed: $it") }.getOrNull()
+    /** Notes which copy and quality a song started on, for the pipeline's upgrade history ("0:00 · Qobuz · FLAC 24-bit"). */
+    private fun recordStart(t: Track) {
+        scope.launch {
+            delay(900) // the decoder has reported the stream's format by now
+            if (player.currentMediaItem?.mediaId != t.id) return@launch
+            val url = AudioInfo.urlFor(t.id).orEmpty()
+            val source = when {
+                t.source == "local" || Downloads.file(t).exists() -> "This phone"
+                t.source == "subsonic" -> "Your server"
+                "googlevideo" in url -> "YouTube"
+                "saavncdn" in url -> "JioSaavn"
+                else -> Resolver.copyName(t.ref)?.substringAfter(" · ") ?: t.source
             }
+            AudioInfo.event(t.id, player.currentPosition, listOfNotNull(source, AudioInfo.label).joinToString(" · "))
         }
-        if (player.currentMediaItem?.mediaId != id) return // moved on; the copy is cached for its next play
-        if (player.currentPosition > latestMs) { AudioInfo.upgrading(id, "none"); AudioInfo.event(id, "Found too far into the song; the next play uses it"); return }
-        rampSwitchGain(0f, 120)
-        val at = player.currentPosition
-        player.replaceMediaItem(player.currentMediaItemIndex, refreshed(player.currentMediaItem ?: return) ?: return)
-        player.seekTo(at)
-        withTimeoutOrNull(5_000) { while (player.playbackState != Player.STATE_READY) delay(15) }
-        rampSwitchGain(1f, 280)
-        AudioInfo.event(id, "Switched at ${at / 60_000}:%02d without stopping (pre-loaded ${prefilled?.let { "%.1f MB".format(it / 1_048_576f) } ?: "nothing"})".format(at / 1000 % 60))
-        AudioInfo.upgrading(id, "upgraded")
-        UpgradeLog.add("switched $id at $at ms (prefilled ${prefilled?.let { "${it / 1024} KB" } ?: "nothing"})")
-    }
-
-    private suspend fun rampSwitchGain(to: Float, ms: Int) {
-        val from = switchGain; val steps = (ms / 15).coerceAtLeast(1)
-        for (i in 1..steps) { switchGain = from + (to - from) * i / steps; applyVolume(); delay(15) }
     }
 
     /**
