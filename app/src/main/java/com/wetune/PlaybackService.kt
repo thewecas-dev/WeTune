@@ -325,7 +325,7 @@ class PlaybackService : MediaSessionService() {
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult =
             MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(
-                    MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(SessionCommand(CMD_SLEEP, Bundle.EMPTY)).add(SessionCommand(CMD_LIKE, Bundle.EMPTY)).build()
+                    MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(SessionCommand(CMD_SLEEP, Bundle.EMPTY)).add(SessionCommand(CMD_LIKE, Bundle.EMPTY)).add(SessionCommand(CMD_RELOAD, Bundle.EMPTY)).build()
                 )
                 .build()
 
@@ -334,6 +334,13 @@ class PlaybackService : MediaSessionService() {
         ): ListenableFuture<SessionResult> {
             if (customCommand.customAction == CMD_LIKE) player.currentMediaItem?.track()?.let { t ->
                 io(then = { updateLikeButton() }) { Library.toggleLike(t) }
+            }
+            if (customCommand.customAction == CMD_RELOAD) player.currentMediaItem?.let { m ->
+                // the user picked another version: load it at the same spot (a deliberate switch, so a short reload is fine)
+                m.track()?.let { Resolver.forget(it.source, it.ref) }
+                val at = player.currentPosition
+                refreshed(m)?.let { player.replaceMediaItem(player.currentMediaItemIndex, it); player.seekTo(at) }
+                m.track()?.let(::recordStart) // the quality history notes the new version
             }
             if (customCommand.customAction == CMD_SLEEP) {
                 sleepJob?.cancel()

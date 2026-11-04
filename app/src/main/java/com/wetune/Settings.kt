@@ -32,6 +32,7 @@ object Settings {
     var maxWifi by Str("max_wifi", if (prefs.getString("play_from", "yt") == "saavn") "max" else if (prefs.getBoolean("wifi_high", true)) "high" else "data")
     var maxMobile by Str("max_mobile", if (prefs.getBoolean("mobile_high", false)) (if (prefs.getString("play_from", "yt") == "saavn") "max" else "high") else "data")
     var saavnOn by Bool("saavn_on", true) // JioSaavn 320 kbps as a step on the quality ladder (Settings → Sources)
+    var saavnRank by IntPref("saavn_rank", 99) // JioSaavn's place among the add-ons in Settings → Sources (0 = first; past the end = after all of them)
     var normalize by Bool("normalize", true)
     var autoplay by Bool("autoplay", true)
     var autoRotate by Bool("auto_rotate", false)
@@ -47,6 +48,15 @@ object Settings {
         override fun setValue(thisRef: Any?, property: KProperty<*>, value: String) {
             state.value = value
             prefs.edit().putString(key, value).apply()
+        }
+    }
+
+    private class IntPref(val key: String, val default: Int) : ReadWriteProperty<Any?, Int> {
+        private val state by lazy { mutableStateOf(prefs.getInt(key, default)) }
+        override fun getValue(thisRef: Any?, property: KProperty<*>) = state.value
+        override fun setValue(thisRef: Any?, property: KProperty<*>, value: Int) {
+            state.value = value
+            prefs.edit().putInt(key, value).apply()
         }
     }
 

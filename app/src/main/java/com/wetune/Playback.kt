@@ -27,6 +27,7 @@ import org.json.JSONObject
 
 const val CMD_SLEEP = "wetune.sleep"
 const val CMD_LIKE = "wetune.like"
+const val CMD_RELOAD = "wetune.reload" // reload the playing song at the same spot (after picking another version)
 
 /** Full MediaItem for a track. The URI is a wetune:// placeholder the service resolves when it loads. */
 fun Track.toMediaItem(): MediaItem {
@@ -174,6 +175,12 @@ object Playback {
     fun position(): Long = c?.currentPosition ?: 0
     fun duration(): Long = c?.duration?.takeIf { it > 0 } ?: 0
     fun buffered(): Long = c?.bufferedPosition ?: 0
+    /** Plays version [choice] of YouTube song [t] (from Audio options) right away, at the same spot, and from now on. */
+    fun useVersion(t: Track, choice: String?) {
+        Resolver.choose(t.ref, choice)
+        c?.sendCustomCommand(SessionCommand(CMD_RELOAD, Bundle.EMPTY), Bundle.EMPTY)
+    }
+
     fun speed(): Float = c?.playbackParameters?.speed ?: 1f
 
     /** 0 cancels the timer. */

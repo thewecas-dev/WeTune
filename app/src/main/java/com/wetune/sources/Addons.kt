@@ -77,22 +77,23 @@ object Addons {
         return a
     }
 
+    fun reorder(ids: List<String>) = save(ids.mapNotNull { id -> list.firstOrNull { it.id == id } } + list.filter { it.id !in ids })
     fun remove(a: Addon) = save(list.filter { it.base != a.base })
     fun setEnabled(a: Addon, on: Boolean) = save(list.map { if (it.base == a.base) it.copy(enabled = on) else it })
     fun setQuality(a: Addon, value: String) = save(list.map { if (it.base == a.base) it.copy(quality = value) else it })
-    fun move(a: Addon, by: Int) {
-        val i = list.indexOfFirst { it.base == a.base }; val j = (i + by).coerceIn(0, list.lastIndex)
-        if (i < 0 || i == j) return
-        save(list.toMutableList().also { val x = it.removeAt(i); it.add(j, x) })
-    }
 
     private fun params(a: Addon) = if (a.qualityKey != null && a.quality != null) "${a.qualityKey}=${a.quality.urlEncode()}" else ""
+
+    /** The quality an add-on reported for a track in its search results ("24-bit / 48 kHz"), by ref. */
+    private val qualities = java.util.concurrent.ConcurrentHashMap<String, String>()
+    fun qualityOf(ref: String): String? = qualities[ref]
 
     /** Blocking. Songs [a] finds for [query], as tracks of source "addon" (ref = add-on id + "|" + its track id). */
     fun search(a: Addon, query: String): List<Track> {
         val o = get("${a.base}/search?q=${query.urlEncode()}" + params(a).let { if (it.isEmpty()) "" else "&$it" })
         return o.optJSONArray("tracks").objects().mapNotNull { t ->
             val id = t.str("id") ?: return@mapNotNull null
+            t.str("audioQuality")?.let { qualities["${a.id}|$id"] = "FLAC · " + it.replace(" / ", " · ") }
             Track(
                 source = "addon", ref = "${a.id}|$id", title = t.optString("title"), artist = t.optString("artist"),
                 album = t.optString("album"), art = t.str("artworkURL") ?: t.str("artwork"), durationMs = t.optLong("duration") * 1000,

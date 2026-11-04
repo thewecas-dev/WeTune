@@ -120,6 +120,7 @@ fun GlassPlayer(ui: PlayerUi) {
     var seekDrag by remember { mutableStateOf<Float?>(null) } // while dragging the seek bar: where you'd land
     var coverMenu by remember { mutableStateOf(false) }
     var pipeline by remember { mutableStateOf(false) }
+    var audioOptions by remember { mutableStateOf(false) } // tap the quality tag: versions + sources, then the pipeline
     val swipe = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -147,7 +148,7 @@ fun GlassPlayer(ui: PlayerUi) {
             transitionSpec = { (fadeIn(tween(380, delayMillis = 60)) togetherWith fadeOut(tween(220))).using(SizeTransform(clip = false)) },
         ) { open ->
         CompositionLocalProvider(LocalShared provides SharedScopes(this@SharedTransitionLayout, this@AnimatedContent)) {
-        if (open) ImmersivePane(ui, onQuality = { pipeline = true }) { seekDrag = it } else Box(Modifier.fillMaxSize()) {
+        if (open) ImmersivePane(ui, onQuality = { audioOptions = true }) { seekDrag = it } else Box(Modifier.fillMaxSize()) {
 
         // Top 60%: the corner buttons. On the cover: swipe to skip, long-press for a menu.
         Column(Modifier.fillMaxWidth().height(split).statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
@@ -190,7 +191,7 @@ fun GlassPlayer(ui: PlayerUi) {
             TitleRow(ui) { pipeline = true }
             LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() })
             Spacer(Modifier.height(18.dp))
-            GlassSeek(ui, onQuality = { pipeline = true }) { seekDrag = it }
+            GlassSeek(ui, onQuality = { audioOptions = true }) { seekDrag = it }
             Spacer(Modifier.weight(0.6f).heightIn(min = 10.dp))
             Transport()
             Spacer(Modifier.weight(0.6f).heightIn(min = 10.dp))
@@ -205,6 +206,7 @@ fun GlassPlayer(ui: PlayerUi) {
         }
         }
     }
+    if (audioOptions) AudioOptionsSheet(ui.t, onPipeline = { audioOptions = false; pipeline = true }) { audioOptions = false }
     if (pipeline) PipelineSheet(ui.t) { pipeline = false }
 }
 

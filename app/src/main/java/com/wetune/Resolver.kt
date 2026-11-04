@@ -88,35 +88,118 @@ object Resolver {
         return source(source).streamUrl(ref, high).also { cache[key] = it to System.currentTimeMillis() + TTL }
     }
 
-    /** How long a not-yet-matched song waits for its better copies before starting on YouTube. */
-    private const val START_WAIT = 3_000L
+    /** How long a not-yet-matched song waits for its better copies before starting on what's ready (kept short so play feels instant). */
+    private const val START_WAIT = 1_200L
 
     private fun state(m: Map<String, String>, ref: String) = m[ref]?.let { if (it.isEmpty()) "none" else "found" } ?: "unknown"
 
-    private fun needsSearch(ref: String) = (wantsLossless() && !losslessMatch.containsKey(ref)) || (wantsMax() && !saavnMatch.containsKey(ref))
+    private fun needsSearch(ref: String) = pin(ref) == null && ((wantsLossless() && !losslessMatch.containsKey(ref)) || (wantsMax() && !saavnMatch.containsKey(ref)))
 
     /** The best already-matched copy allowed by the ceiling, with how long its address stays valid. */
     private fun bestKnown(ref: String, high: Boolean): Pair<String, Long>? {
-        val id = "yt:$ref"
-        if (wantsLossless()) losslessMatch[ref]?.takeIf { it.isNotEmpty() }?.let { m ->
-            runCatching { Addons.stream(m) }.getOrNull()?.let { s ->
-                using[ref] = "lossless"
-                AudioInfo.lossless(id, s.codec, s.bitDepth, s.sampleRate)
-                losslessInfo[ref]?.let { AudioInfo.matched(id, it) }
-                AudioInfo.upgrading(id, "upgraded")
-                return s.url to LOSSLESS_TTL
+        // a version the user picked in Audio options wins over everything
+        pin(ref)?.let { p ->
+            return when {
+                p.startsWith("addon|") -> playLossless(ref, p.removePrefix("addon|"))
+                p.startsWith("saavn|") -> playSaavn(ref, p.removePrefix("saavn|"), high)
+                else -> null // "yt": the original
             }
         }
-        if (wantsMax()) saavnMatch[ref]?.takeIf { it.isNotEmpty() }?.let { m ->
-            runCatching { JioSaavn.streamUrl(m, high) }.getOrNull()?.let { url ->
-                using[ref] = "saavn"
-                AudioInfo.lossless(id, null, 0, 0)
-                saavnInfo[ref]?.let { AudioInfo.matched(id, it) }
-                AudioInfo.upgrading(id, "upgraded")
-                return url to TTL
-            }
+        // otherwise the first source in the user's order that has the same recording, within the quality ceiling
+        for (s in order()) {
+            val got = if (s == "saavn") saavnMatch[ref]?.takeIf { wantsMax() && it.isNotEmpty() }?.let { playSaavn(ref, it, high) }
+            else losslessMatch[ref]?.takeIf { wantsLossless() && it.startsWith("$s|") }?.let { playLossless(ref, it) }
+            if (got != null) return got
         }
         return null
+    }
+
+    private fun playLossless(ref: String, m: String): Pair<String, Long>? {
+        val id = "yt:$ref"
+        val s = runCatching { Addons.stream(m) }.getOrNull() ?: return null
+        using[ref] = "lossless"; usingRef[ref] = m
+        AudioInfo.lossless(id, s.codec, s.bitDepth, s.sampleRate)
+        losslessInfo[ref]?.let { AudioInfo.matched(id, it) }
+        AudioInfo.upgrading(id, "upgraded")
+        return s.url to LOSSLESS_TTL
+    }
+
+    private fun playSaavn(ref: String, m: String, high: Boolean): Pair<String, Long>? {
+        val id = "yt:$ref"
+        val url = runCatching { JioSaavn.streamUrl(m, high) }.getOrNull() ?: return null
+        using[ref] = "saavn"; usingRef[ref] = m
+        AudioInfo.lossless(id, null, 0, 0)
+        saavnInfo[ref]?.let { AudioInfo.matched(id, it) }
+        AudioInfo.upgrading(id, "upgraded")
+        return url to TTL
+    }
+
+    /** Where better copies are looked for, in the user's order (Settings → Sources): add-on ids with "saavn" among them. */
+    fun order(): List<String> = fullOrder().filter { it == "saavn" || Addons.enabled.any { a -> a.id == it } }
+
+    /** Every source in order, switched off or not ("saavn" among add-on ids), as Settings → Sources lists them. */
+    fun fullOrder(): List<String> {
+        val ids = Addons.list.map { it.id }
+        val r = Settings.saavnRank.coerceIn(0, ids.size)
+        return ids.take(r) + "saavn" + ids.drop(r)
+    }
+
+    /** Moves one source up (-1) or down (+1) in [fullOrder]. */
+    fun move(key: String, by: Int) {
+        val l = fullOrder().toMutableList(); val i = l.indexOf(key); val j = i + by
+        if (i < 0 || j !in l.indices) return
+        l[i] = l[j].also { l[j] = l[i] }
+        Settings.saavnRank = l.indexOf("saavn")
+        Addons.reorder(l.filter { it != "saavn" })
+    }
+
+    // ---- versions the user picks (Audio options) ----
+
+    /** The exact ref each YouTube song is playing from ("addonId|trackId" or a JioSaavn ref). */
+    private val usingRef = ConcurrentHashMap<String, String>()
+    private val pins by lazy { App.ctx.getSharedPreferences("pins", android.content.Context.MODE_PRIVATE) }
+
+    /** The version the user chose for a YouTube song: "yt", "saavn|<ref>" or "addon|<addonId|trackId>"; null = automatic. */
+    fun pin(ytRef: String): String? = pins.getString(ytRef, null)
+
+    /** Plays [choice] for this song from now on (remembered); null goes back to automatic. */
+    fun choose(ytRef: String, choice: String?) {
+        pins.edit().apply { if (choice == null) remove(ytRef) else putString(ytRef, choice) }.apply()
+        forget("yt", ytRef)
+    }
+
+    /** Which version is playing right now, as a choice key ("yt", "saavn|…", "addon|…"). */
+    fun playingChoice(ytRef: String, url: String?): String = when {
+        url == null || "googlevideo" in url -> "yt"
+        using[ytRef] == "saavn" -> "saavn|" + usingRef[ytRef]
+        using[ytRef] == "lossless" -> "addon|" + usingRef[ytRef]
+        else -> "yt"
+    }
+
+    /** One version of a song the user can switch to. */
+    data class Version(val choice: String, val source: String, val title: String, val detail: String, val quality: String, val durationMs: Long)
+
+    /** Blocking. Every version WeTune can find for a YouTube song: the original, JioSaavn's and each add-on's results. */
+    fun versions(t: com.wetune.sources.Track): List<Version> {
+        val q = SourceMatch.queries(t.title, t.artist).first()
+        val saavn = if (Settings.saavnOn) worker.submit<List<Version>> {
+            runCatching { JioSaavn.search(q).take(5) }.getOrDefault(emptyList()).map {
+                Version("saavn|" + it.ref, "JioSaavn", it.title, listOf(it.artist, it.album).filter(String::isNotBlank).joinToString(" · "),
+                    if (JioSaavn.has320(it.ref)) "AAC · 320 kbps" else "AAC · 160 kbps", it.durationMs)
+            }
+        } else null
+        val addons = Addons.enabled.map { a ->
+            worker.submit<List<Version>> {
+                runCatching { Addons.search(a, q).take(5) }.getOrDefault(emptyList()).map {
+                    Version("addon|" + it.ref, a.name, it.title, listOf(it.artist, it.album).filter(String::isNotBlank).joinToString(" · "),
+                        Addons.qualityOf(it.ref) ?: "Lossless", it.durationMs)
+                }
+            }
+        }
+        val original = Version("yt", "YouTube", t.title, t.artist, "Opus · up to 160 kbps", t.durationMs)
+        // in the user's order, YouTube last
+        val byId = addons.zip(Addons.enabled).associate { (f, a) -> a.id to f }
+        return order().flatMap { s -> runCatching { (if (s == "saavn") saavn else byId[s])?.get(40, java.util.concurrent.TimeUnit.SECONDS) }.getOrNull().orEmpty() } + original
     }
 
     /** Called with a YouTube id once a better copy is found in the background (the player may switch to it). */

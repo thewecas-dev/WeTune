@@ -26,28 +26,38 @@ import com.wetune.sources.Addons
 @Composable
 fun SourcesList() {
     val addons = Addons.list
-    var n = 0
-    Group("Sources, tried in this order") {
-        addons.forEach { a ->
-            n++
-            AddonRow(n, a, first = a == addons.first(), last = a == addons.last())
+    val order = com.wetune.Resolver.fullOrder()
+    Group("Sources, checked in this order") {
+        order.forEachIndexed { i, key ->
+            val first = i == 0; val last = i == order.lastIndex
+            if (key == "saavn") SaavnRow(i + 1, first, last)
+            else addons.firstOrNull { it.id == key }?.let { AddonRow(i + 1, it, first, last) }
             Divider(Modifier.padding(start = 62.dp))
         }
-        n++
-        SourceRow(n, Ic.Volume, "JioSaavn", "320 kbps · May match the wrong version of a song now and then") {
-            ToggleKnob(Settings.saavnOn) { Settings.saavnOn = it }
-        }
-        Divider(Modifier.padding(start = 62.dp))
-        n++
-        SourceRow(n, Ic.Play, "YouTube Music", "Lossy · Full catalogue · Radio") { Txt("Always on", style = Type.caption, color = WT.c.muted) }
+        SourceRow(order.size + 1, Ic.Play, "YouTube Music", "Lossy · Full catalogue · Radio · the fallback") { Txt("Always on", style = Type.caption, color = WT.c.muted) }
         Divider(Modifier.padding(start = 62.dp))
         AddAddon()
     }
     Txt(
-        "A song starts on YouTube and moves up this list as far as Maximum quality (Settings → Playback) allows. " +
+        "For each song WeTune checks these from the top, up to Maximum quality (Settings → Playback), and plays the first one " +
+            "that has the exact same recording. Playback never waits long: if nothing better is ready within about a second, " +
+            "the song starts on what is, and the better copy is used the next time. Tap a source to move it. " +
             "Add-ons are servers run by other people: they can be slow to wake, go offline, or stop working at any time.",
         Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
     )
+}
+
+@Composable
+private fun SaavnRow(n: Int, first: Boolean, last: Boolean) {
+    var menu by remember { mutableStateOf(false) }
+    SourceRow(n, Ic.Volume, "JioSaavn", "AAC · 320 kbps · May match the wrong version of a song now and then", onClick = { menu = true }) {
+        ToggleKnob(Settings.saavnOn) { Settings.saavnOn = it }
+    }
+    Menu(menu, { menu = false }, "JioSaavn") {
+        if (!first) MenuItem("Move up", { com.wetune.Resolver.move("saavn", -1); menu = false }, Ic.ArrowUp)
+        if (!last) MenuItem("Move down", { com.wetune.Resolver.move("saavn", 1); menu = false }, Ic.ArrowDown)
+        if (first && last) MenuItem("Add an add-on to change the order", { menu = false }, enabled = false)
+    }
 }
 
 @Composable
@@ -56,7 +66,7 @@ private fun SourceRow(n: Int, icon: androidx.compose.ui.graphics.vector.ImageVec
         Modifier.fillMaxWidth().then(if (onClick != null) Modifier.pressable(scale = 0.98f, onClick = onClick) else Modifier).padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Txt("$n", Modifier.width(20.dp), style = Type.body, color = WT.c.muted)
+        Txt(if (n > 0) "$n" else "", Modifier.width(20.dp), style = Type.body, color = WT.c.muted)
         Icon(icon, null, Modifier.padding(start = 4.dp, end = 14.dp), size = 22.dp)
         Column(Modifier.weight(1f)) {
             Txt(title, style = Type.bodyStrong, maxLines = 1)
@@ -76,8 +86,8 @@ private fun AddonRow(n: Int, a: Addons.Addon, first: Boolean, last: Boolean) {
     ).joinToString(" · ")
     SourceRow(n, Ic.Server, a.name, detail, onClick = { menu = true }) { ToggleKnob(a.enabled) { Addons.setEnabled(a, it) } }
     Menu(menu, { menu = false }, a.name) {
-        if (!first) MenuItem("Move up", { Addons.move(a, -1); menu = false }, Ic.ArrowUp)
-        if (!last) MenuItem("Move down", { Addons.move(a, 1); menu = false }, Ic.ArrowDown)
+        if (!first) MenuItem("Move up", { com.wetune.Resolver.move(a.id, -1); menu = false }, Ic.ArrowUp)
+        if (!last) MenuItem("Move down", { com.wetune.Resolver.move(a.id, 1); menu = false }, Ic.ArrowDown)
         a.qualities.forEach { (value, label) ->
             MenuItem(if (value == a.quality) "✓  $label" else label, { Addons.setQuality(a, value); menu = false })
         }
