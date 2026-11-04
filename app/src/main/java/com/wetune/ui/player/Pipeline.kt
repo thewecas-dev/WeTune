@@ -60,7 +60,8 @@ fun PipelineSheet(t: Track, onDismiss: () -> Unit) {
     val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     val sourceName = when {
-        fromSaavn -> "JioSaavn · upgraded from YouTube"
+        t.source == "yt" && url?.contains("googlevideo") != true && com.wetune.Resolver.copyName(t.ref) != null -> com.wetune.Resolver.copyName(t.ref)!! + " · upgraded from YouTube"
+        fromSaavn -> "JioSaavn · 320 kbps · upgraded from YouTube"
         downloaded -> "Downloaded copy"
         else -> when (t.source) { "yt" -> "YouTube Music"; "saavn" -> "JioSaavn"; "subsonic" -> "Subsonic server"; else -> "This phone" }
     }
@@ -74,6 +75,15 @@ fun PipelineSheet(t: Track, onDismiss: () -> Unit) {
                 "File" to when { downloaded -> Downloads.file(t).name; t.source == "local" -> uri?.lastPathSegment; else -> null },
             ),
         )
+        // how this song's quality got where it is: started on…, found…, switched…
+        val history = AudioInfo.history
+        if (history.isNotEmpty()) {
+            val t0 = history.first().first
+            Stage(
+                Ic.ArrowUp, "UPGRADES", history.last().second,
+                history.map { (at, what) -> "+%.1f s".format((at - t0) / 1000f) to what },
+            )
+        }
         Stage(
             Ic.Download, "TRANSFER",
             when { downloaded || t.source == "local" -> "Read from storage"; bytes > 0 && cached >= bytes -> "Played from the cache"; else -> "Streaming over ${network.first}" },

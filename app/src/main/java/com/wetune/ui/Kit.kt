@@ -343,6 +343,7 @@ fun Field(
     password: Boolean = false,
     keyboard: KeyboardOptions = KeyboardOptions.Default,
     actions: KeyboardActions = KeyboardActions.Default,
+    onClear: (() -> Unit)? = null, // shows a ✕ while there's text
 ) {
     val c = WT.c
     Column(modifier) {
@@ -372,6 +373,11 @@ fun Field(
                     cursorBrush = SolidColor(c.accent),
                 )
             }
+            if (onClear != null && value.isNotEmpty()) Box(
+                Modifier.padding(start = 8.dp).size(24.dp).clip(CircleShape).background(c.text.copy(alpha = 0.12f))
+                    .pressable(scale = 0.9f, onClick = onClear).semantics { contentDescription = "Clear" },
+                Alignment.Center,
+            ) { Icon(Ic.Close, null, size = 12.dp, tint = c.text) }
         }
     }
 }

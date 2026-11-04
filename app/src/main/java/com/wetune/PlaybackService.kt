@@ -40,6 +40,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.runInterruptible
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -57,13 +59,14 @@ class PlaybackService : MediaSessionService() {
     private var radioFor: String? = null
     private var retried: String? = null // song already retried once after a playback error
     private val queueFile get() = File(filesDir, "queue.json")
+    private lateinit var cached: CacheDataSource.Factory
 
     override fun onCreate() {
         super.onCreate()
         // wetune://<source>?r=<ref> is resolved to a real URL on the loader thread, so network calls are fine here.
         // Cache sits under the resolver and is keyed by the real stream (YouTube video+format, JioSaavn file), so two
         // different streams for the same song can never be mixed into one cached file.
-        val cached = CacheDataSource.Factory().setCache(App.cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(http))
+        cached = CacheDataSource.Factory().setCache(App.cache).setUpstreamDataSourceFactory(OkHttpDataSource.Factory(http))
             .setCacheKeyFactory { spec -> AudioInfo.cacheKey(spec.uri.toString()) }
         val upstream = ResolvingDataSource.Factory(cached) { spec ->
             if (spec.uri.scheme != "wetune") spec
@@ -223,7 +226,7 @@ class PlaybackService : MediaSessionService() {
             fade = kotlin.math.sin(minOf(fadeIn, fadeOut) * Math.PI.toFloat() / 2)
         }
         val sleep = if (sleepFadeFrom > 0) (1f - (System.currentTimeMillis() - sleepFadeFrom) / SLEEP_FADE_MS.toFloat()).coerceIn(0f, 1f) else 1f
-        player.volume = normGain * fade * sleep
+        player.volume = normGain * fade * sleep * switchGain
     }
 
     /** Applies speed, pitch and skip-silence when they change, and runs the fade clock while fades are on. */
@@ -291,14 +294,11 @@ class PlaybackService : MediaSessionService() {
         val item = player.currentMediaItem ?: return
         val t = item.track() ?: return
         if (t.source != "yt" && t.source != "saavn") return
-        val uri = item.localConfiguration?.uri?.takeIf { it.scheme == "wetune" } ?: return
+        if (item.localConfiguration?.uri?.scheme != "wetune" || switching == t.id) return
         UpgradeLog.add("upgrade ${t.id}: $why")
-        Resolver.forget(t.source, t.ref)
-        val at = player.currentPosition
-        val u = uri.buildUpon().clearQuery().apply { uri.queryParameterNames.filter { it != "u" }.forEach { k -> appendQueryParameter(k, uri.getQueryParameter(k)) } }
-            .appendQueryParameter("u", System.currentTimeMillis().toString()).build()
-        player.replaceMediaItem(player.currentMediaItemIndex, item.buildUpon().setUri(u).build())
-        player.seekTo(at)
+        switching = t.id
+        // any point in the song: same smooth swap (prefilled, brief dip) as a found copy
+        scope.launch { try { smoothSwitch(t.id, t, latestMs = Long.MAX_VALUE) } finally { switching = null; if (switchGain < 1f) { switchGain = 1f; applyVolume() } } }
     }
 
     /** Sends the play to YouTube once per song, after it actually starts playing. */
@@ -375,12 +375,6 @@ class PlaybackService : MediaSessionService() {
         val item = player.currentMediaItem ?: return
         val t = item.track() ?: return
         UpgradeLog.add("copy found for $id; playing ${item.mediaId} at ${player.currentPosition} ms")
-        // a changed address makes the player load the stream again (through the resolver, which now picks the copy)
-        fun refreshed(m: MediaItem): MediaItem? {
-            val uri = m.localConfiguration?.uri ?: return null
-            val u = uri.buildUpon().clearQuery().apply { uri.queryParameterNames.filter { it != "u" }.forEach { k -> appendQueryParameter(k, uri.getQueryParameter(k)) } }
-            return m.buildUpon().setUri(u.appendQueryParameter("u", System.currentTimeMillis().toString()).build()).build()
-        }
         if (item.mediaId != id) {
             // a song later in the queue (usually the next one, already preloaded from YouTube): reload it so it starts in 320 kbps
             val i = (0 until player.mediaItemCount).firstOrNull { it != player.currentMediaItemIndex && player.getMediaItemAt(it).mediaId == id } ?: return
@@ -390,24 +384,86 @@ class PlaybackService : MediaSessionService() {
             UpgradeLog.add("queued $id at #$i will play the 320 kbps copy")
             return
         }
-        if (player.currentPosition > 12_000) { AudioInfo.upgrading(id, "none"); return }
-        val at = player.currentPosition
-        Resolver.forget(t.source, t.ref)
-        player.replaceMediaItem(player.currentMediaItemIndex, refreshed(item) ?: return)
-        player.seekTo(at)
-        AudioInfo.upgrading(id, "upgraded")
-        UpgradeLog.add("switched $id to the 320 kbps copy at $at ms")
+        if (player.currentPosition > 12_000) { AudioInfo.upgrading(id, "none"); AudioInfo.event(id, "Found too far into the song; the next play uses it"); return }
+        if (switching == id) return
+        switching = id
+        scope.launch {
+            try { smoothSwitch(id, t) } finally { switching = null; if (switchGain < 1f) { switchGain = 1f; applyVolume() } }
+        }
     }
 
-    /** Resolves the next song's stream while this one plays, so skipping or the next song starts at once. */
+    /** The same item with a changed address, so the player loads it again (through the resolver, which now picks the better copy). */
+    private fun refreshed(m: MediaItem): MediaItem? {
+        val uri = m.localConfiguration?.uri ?: return null
+        val u = uri.buildUpon().clearQuery().apply { uri.queryParameterNames.filter { it != "u" }.forEach { k -> appendQueryParameter(k, uri.getQueryParameter(k)) } }
+        return m.buildUpon().setUri(u.appendQueryParameter("u", System.currentTimeMillis().toString()).build()).build()
+    }
+
+    private var switching: String? = null
+    private var switchGain = 1f // the brief dip while swapping streams; part of applyVolume()
+
+    /**
+     * Swaps the playing song to its better copy without the stop-and-load: first the part of the new file around the
+     * playing spot is pulled into the cache (so the swap reads from the phone, not the network), then the volume dips
+     * for a moment, the stream is swapped at the same position, and the volume comes back once it's playing again.
+     */
+    private suspend fun smoothSwitch(id: String, t: Track, latestMs: Long = 20_000) {
+        val item = player.currentMediaItem ?: return
+        val uri = item.localConfiguration?.uri ?: return
+        val startAt = player.currentPosition
+        Resolver.forget(t.source, t.ref)
+        val prefilled = withContext(Dispatchers.IO) {
+            withTimeoutOrNull(8_000) {
+                runCatching {
+                    runInterruptible {
+                        val url = Resolver.streamUrl(t.source, t.ref, title = uri.getQueryParameter("t"), artist = uri.getQueryParameter("a"), durationMs = uri.getQueryParameter("d")?.toLongOrNull() ?: 0)
+                        // enough to cover where playback will be once this finishes, plus a few seconds
+                        val perSec = Resolver.bytesPerSec(t.ref) ?: 24_000L // YouTube ≈ 160 kbps
+                        val bytes = ((startAt / 1000 + 12) * perSec).coerceIn(512_000L, 8_000_000L)
+                        androidx.media3.datasource.cache.CacheWriter(cached.createDataSource(), androidx.media3.datasource.DataSpec(Uri.parse(url), 0, bytes), null, null).cache()
+                        bytes
+                    }
+                }.onFailure { UpgradeLog.add("prefill for $id failed: $it") }.getOrNull()
+            }
+        }
+        if (player.currentMediaItem?.mediaId != id) return // moved on; the copy is cached for its next play
+        if (player.currentPosition > latestMs) { AudioInfo.upgrading(id, "none"); AudioInfo.event(id, "Found too far into the song; the next play uses it"); return }
+        rampSwitchGain(0f, 120)
+        val at = player.currentPosition
+        player.replaceMediaItem(player.currentMediaItemIndex, refreshed(player.currentMediaItem ?: return) ?: return)
+        player.seekTo(at)
+        withTimeoutOrNull(5_000) { while (player.playbackState != Player.STATE_READY) delay(15) }
+        rampSwitchGain(1f, 280)
+        AudioInfo.event(id, "Switched at ${at / 60_000}:%02d without stopping (pre-loaded ${prefilled?.let { "%.1f MB".format(it / 1_048_576f) } ?: "nothing"})".format(at / 1000 % 60))
+        AudioInfo.upgrading(id, "upgraded")
+        UpgradeLog.add("switched $id at $at ms (prefilled ${prefilled?.let { "${it / 1024} KB" } ?: "nothing"})")
+    }
+
+    private suspend fun rampSwitchGain(to: Float, ms: Int) {
+        val from = switchGain; val steps = (ms / 15).coerceAtLeast(1)
+        for (i in 1..steps) { switchGain = from + (to - from) * i / steps; applyVolume(); delay(15) }
+    }
+
+    /**
+     * While a song plays, the next three are looked up ahead of time: their best copies are searched and matched
+     * (a few KB of search results each, no audio), so each starts at the highest quality allowed right away.
+     * The very next song's address is also resolved, so skipping starts instantly; the player itself buffers its
+     * audio only near the end of the current one (for gapless playback).
+     */
     private fun prefetchNext() {
-        val next = player.currentMediaItemIndex + 1
-        if (next >= player.mediaItemCount) return
-        val uri = player.getMediaItemAt(next).localConfiguration?.uri ?: return
-        if (uri.scheme != "wetune") return
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                Resolver.streamUrl(uri.authority!!, uri.getQueryParameter("r")!!, title = uri.getQueryParameter("t"), artist = uri.getQueryParameter("a"), durationMs = uri.getQueryParameter("d")?.toLongOrNull() ?: 0)
+        val here = player.currentMediaItemIndex
+        (1..3).forEach { ahead ->
+            val i = here + ahead
+            if (i >= player.mediaItemCount) return
+            val uri = player.getMediaItemAt(i).localConfiguration?.uri ?: return@forEach
+            if (uri.scheme != "wetune") return@forEach
+            val source = uri.authority ?: return@forEach; val ref = uri.getQueryParameter("r") ?: return@forEach
+            val title = uri.getQueryParameter("t"); val artist = uri.getQueryParameter("a"); val dur = uri.getQueryParameter("d")?.toLongOrNull() ?: 0
+            scope.launch(Dispatchers.IO) {
+                runCatching {
+                    if (ahead == 1) Resolver.streamUrl(source, ref, title = title, artist = artist, durationMs = dur)
+                    else if (source == "yt" && title != null) Resolver.prepare(ref, title, artist.orEmpty(), dur)
+                }
             }
         }
     }

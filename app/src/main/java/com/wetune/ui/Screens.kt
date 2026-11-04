@@ -173,11 +173,11 @@ fun SearchScreen(open: (Screen) -> Unit) {
             leading = Ic.Search,
             keyboard = KeyboardOptions(imeAction = ImeAction.Search),
             actions = KeyboardActions(onSearch = { submit(query) }),
+            onClear = { query = ""; submitted = "" }, // back to recent searches
         )
         Pills(
             listOf(
-                Triple("yt", "YouTube", Ic.Play), Triple("local", "Device", Ic.Library),
-                Triple("saavn", "JioSaavn", Ic.Note), Triple("subsonic", "Subsonic", Ic.Server),
+                Triple("yt", "Music", Ic.Play), Triple("local", "Device", Ic.Library), Triple("subsonic", "My server", Ic.Server),
             ), source,
         ) { source = it }
         if (submitted.isBlank()) return@Column RecentSearches(::submit)
@@ -214,7 +214,7 @@ private fun TopResult(t: Track, onPlay: () -> Unit) {
         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
             Txt(t.title, style = Type.title.copy(fontSize = Type.title.fontSize * 0.95f), maxLines = 2)
             Txt("Song · ${t.artist}", Modifier.padding(top = 3.dp), style = Type.caption, color = c.muted, maxLines = 1)
-            Txt(when (t.source) { "yt" -> "YouTube"; "saavn" -> "JioSaavn"; "subsonic" -> "Subsonic"; else -> "On this device" }, Modifier.padding(top = 8.dp).glassChip(CircleShape).padding(horizontal = 9.dp, vertical = 3.dp), style = Type.overline.copy(letterSpacing = 0.2.sp), color = c.text)
+            when (t.source) { "local" -> "On this device"; "subsonic" -> "On your server"; else -> null }?.let { Txt(it, Modifier.padding(top = 8.dp).glassChip(CircleShape).padding(horizontal = 9.dp, vertical = 3.dp), style = Type.overline.copy(letterSpacing = 0.2.sp), color = c.text) }
         }
         Box(Modifier.size(50.dp).clip(CircleShape).background(c.text).pressable(onClick = onPlay).semantics { contentDescription = "Play ${t.title}" }, Alignment.Center) {
             Icon(Ic.Play, null, size = 20.dp, tint = c.bg)
@@ -225,7 +225,7 @@ private fun TopResult(t: Track, onPlay: () -> Unit) {
 @Composable
 private fun RecentSearches(onPick: (String) -> Unit) {
     val recent = Settings.recentSearches.lines().filter { it.isNotBlank() }
-    if (recent.isEmpty()) return EmptyState(Ic.Search, "Find something to play", "Search YouTube Music, your device, JioSaavn or your Subsonic server.")
+    if (recent.isEmpty()) return EmptyState(Ic.Search, "Find something to play", "Songs, albums, artists, and music on your device or your own server.")
     LazyColumn(contentPadding = PaddingValues(bottom = BottomSpace)) {
         item {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -265,7 +265,7 @@ fun LibraryScreen(open: (Screen) -> Unit) {
         ) { tab = it }
         val needsYt = tab in setOf("albums", "artists", "history")
         when {
-            needsYt && !signedIn -> EmptyState(Ic.Person, "Sign in to see this", "Your YouTube Music albums, artists and history show up here.") {
+            needsYt && !signedIn -> EmptyState(Ic.Person, "Sign in to see this", "Your albums, artists, playlists and history show up here.") {
                 Btn("Sign in", { open(Screen.SettingsPage("account")) })
             }
             tab == "liked" -> Load(version to signedIn, { (if (signedIn) Sync.likedSongs() else emptyList()) + Library.liked }, placeholder = { SkeletonRows() }) { list, _ -> TrackList(list, "Library" to "Liked songs") }
@@ -307,7 +307,7 @@ private fun NewPlaylistSheet(canUseYouTube: Boolean, onDismiss: () -> Unit, onCr
         ) {
             CheckMark(onYouTube)
             Spacer(Modifier.width(12.dp))
-            Txt("Create on YouTube Music")
+            Txt("Sync to your account")
         }
     }
 }

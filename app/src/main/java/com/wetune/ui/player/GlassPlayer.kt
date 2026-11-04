@@ -546,42 +546,28 @@ private val TimeStyle = Type.caption.copy(fontSize = 12.sp, fontFeatureSettings 
  */
 @Composable
 private fun QualityTag(onClick: () -> Unit) {
-    val state = AudioInfo.upgrade
-    val pulse by rememberInfiniteTransition(label = "upgrade").animateFloat(0.35f, 0.8f, infiniteRepeatable(tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "a")
-    val text = when {
-        state == "searching" -> "Upgrading quality…"
-        else -> AudioInfo.label
-    } ?: return
-    // a small badge (HQ at 256 kbps and up, SQ below) in front of the text, like the reference
+    val searching = AudioInfo.upgrade == "searching"
+    val pulse by rememberInfiniteTransition(label = "upgrade").animateFloat(0.35f, 0.85f, infiniteRepeatable(tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "a")
+    // the version playing now, always (badge + codec · bitrate); while a better copy is being looked for, "· Upgrading…" after it
+    val text = AudioInfo.label
     val badge = AudioInfo.hifiNow?.let { (_, bits, rate) -> if (bits > 16 || rate > 48_000) "HI-RES" else "LOSSLESS" }
         ?: AudioInfo.kbps?.let { if (it >= 256) "HQ" else "SQ" }
+    if (text == null && !searching) return
     AnimatedContent(text, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "quality") { s ->
         Row(
-            Modifier.clip(CircleShape).pressable(scale = 0.96f, onClick = onClick).padding(horizontal = 8.dp, vertical = 2.dp)
-                .graphicsLayer { alpha = if (state == "searching") pulse else 1f },
+            Modifier.clip(CircleShape).pressable(scale = 0.96f, onClick = onClick).padding(horizontal = 8.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // while searching, a small arrow rises and fades in a loop, like it's pulling up the better copy
-            if (state == "searching") RisingArrow()
-            if (badge != null && state != "searching") Txt(
+            if (badge != null && s != null) Txt(
                 badge, Modifier.padding(end = 6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.75f)).padding(horizontal = 3.dp),
                 style = Type.overline.copy(fontSize = 8.sp, letterSpacing = 0.3.sp, lineHeight = 11.sp), color = Color(0xFF1A1210), weight = FontWeight.Bold,
             )
-            Txt(s, style = Type.caption.copy(fontSize = 11.sp, fontFeatureSettings = "tnum"), color = Color.White.copy(alpha = if (state == "upgraded") 0.85f else 0.65f), maxLines = 1)
+            val style = Type.caption.copy(fontSize = 11.sp, fontFeatureSettings = "tnum")
+            if (s != null) Txt(s, style = style, color = Color.White.copy(alpha = 0.75f), maxLines = 1)
+            androidx.compose.animation.AnimatedVisibility(searching, enter = fadeIn(), exit = fadeOut()) {
+                Txt(if (s != null) " · Upgrading…" else "Upgrading…", Modifier.graphicsLayer { alpha = pulse }, style = style, color = Color.White, maxLines = 1)
+            }
         }
-    }
-}
-
-/** An up arrow that floats up and fades, over and over, while WeTune looks for a higher-quality copy. */
-@Composable
-private fun RisingArrow() {
-    val t by rememberInfiniteTransition(label = "rise").animateFloat(0f, 1f, infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "t")
-    Box(Modifier.padding(end = 6.dp).size(12.dp).clip(androidx.compose.ui.graphics.RectangleShape), Alignment.Center) {
-        Icon(
-            Ic.ArrowUp, null,
-            Modifier.graphicsLayer { translationY = (1f - t) * 8.dp.toPx() - 4.dp.toPx(); alpha = kotlin.math.sin(t * Math.PI).toFloat() },
-            size = 12.dp, tint = Color.White,
-        )
     }
 }
 

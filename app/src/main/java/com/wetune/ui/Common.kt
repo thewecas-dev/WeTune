@@ -165,7 +165,7 @@ fun ExpiredBanner() {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Ic.Info, null, size = 20.dp, tint = c.danger)
-        Txt("YouTube sign-in expired. Sign in again in Settings → Account.", Modifier.padding(start = 12.dp), color = c.danger, style = Type.bodyStrong)
+        Txt("Sign-in expired. Sign in again in Settings → Account.", Modifier.padding(start = 12.dp), color = c.danger, style = Type.bodyStrong)
     }
 }
 
@@ -283,7 +283,7 @@ fun PlaylistPicker(t: Track, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
     Sheet("Add to playlist", onDismiss, actions = { Btn("Close", onDismiss, kind = BtnKind.Ghost) }) {
         if (t.source == "yt" && InnerTube.signedIn) {
-            Txt("YouTube Music", style = Type.overline, color = c.accent)
+            Txt("Your account", style = Type.overline, color = c.accent)
             Load("yt-playlists", { Sync.playlists().filter { it.browseId.startsWith("VLPL") } }) { list, _ ->
                 if (list.isEmpty()) Txt("No playlists yet", color = c.muted)
                 list.forEach { p ->
