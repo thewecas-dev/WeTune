@@ -32,25 +32,8 @@ fun smoothPosition(pos: Long): Long {
     return now
 }
 
-/**
- * The words of [line] with their timing: the real word timing when the lyrics have it, otherwise (with
- * "Estimate word timing" on) the line's time shared out across its words by length. Null = show the line as a whole.
- */
-fun wordsOf(line: Lyrics.Line, nextMs: Long, text: String = line.text): List<Lyrics.Word>? {
-    if (text == line.text) line.words?.let { return it }
-    if (!Settings.lyricsEstimate || line.ms < 0) return null
-    val start = line.words?.firstOrNull()?.ms ?: line.ms
-    // end of the line: its own end, else the next line — but never a long instrumental gap
-    val natural = line.words?.lastOrNull()?.endMs ?: line.endMs.takeIf { it > start } ?: nextMs
-    val end = minOf(if (natural > start) natural else start + 3_000, start + 250L + text.length * 110L)
-    val parts = Regex("""\S+\s*""").findAll(text).map { it.value }.toList().ifEmpty { return null }
-    val total = parts.sumOf { it.trim().length.coerceAtLeast(1) }.toFloat()
-    var t = start.toFloat()
-    return parts.map { w ->
-        val d = (end - start) * w.trim().length.coerceAtLeast(1) / total
-        Lyrics.Word(t.toLong(), (t + d).toLong(), w).also { t += d }
-    }
-}
+/** The words of [line] with the timing the lyrics provider gave them; null when it only timed whole lines (shown as a whole). */
+fun wordsOf(line: Lyrics.Line, text: String = line.text): List<Lyrics.Word>? = line.words?.takeIf { text == line.text }
 
 /**
  * A lyric line that fills in letter by letter as it's sung: sung letters in [lit], letters still to come in [dim],

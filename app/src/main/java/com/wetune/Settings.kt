@@ -19,7 +19,6 @@ object Settings {
     var lyricsRoman by Bool("lyrics_roman", false) // show a Latin-letter reading under each lyric line
     var romanInline by Bool("roman_inline", false) // the one-line lyric above the seek bar in Latin letters
     var lyricsWords by Bool("lyrics_words", true) // prefer word-by-word lyrics and light them up letter by letter
-    var lyricsEstimate by Bool("lyrics_estimate", true) // line-synced lyrics get an even letter-by-letter sweep too
     var inlineWords by Bool("inline_words", true) // the one-line lyric above the seek bar fills letter by letter
     var playFrom by Str("play_from", "yt") // where YouTube songs are streamed from: yt | saavn (320 kbps when matched)
     var cacheV2 by Bool("cache_v2", false) // audio cache re-keyed by stream (see PlaybackService)

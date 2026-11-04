@@ -143,9 +143,7 @@ private fun AppearancePage() {
         ToggleRow("Romanized inline lyrics", "The lyric line above the seek bar shows Tamil, Hindi, Telugu… in English letters. The full lyrics stay as they are.", Settings.romanInline) { Settings.romanInline = it }
     }
     Group("Lyrics") {
-        ToggleRow("Word by word", "Prefer lyrics timed per word and light each line up letter by letter as it's sung", Settings.lyricsWords) { Settings.lyricsWords = it; com.wetune.Lyrics.clearCache() }
-        Divider(Modifier.padding(start = 16.dp))
-        ToggleRow("Estimate word timing", "Lyrics timed only by line still fill letter by letter, spread evenly across the line", Settings.lyricsEstimate) { Settings.lyricsEstimate = it }
+        ToggleRow("Word by word", "When the lyrics are timed per word, light each line up letter by letter as it's sung", Settings.lyricsWords) { Settings.lyricsWords = it; com.wetune.Lyrics.clearCache() }
         Divider(Modifier.padding(start = 16.dp))
         ToggleRow("Fill the one-line lyric too", "The lyric above the seek bar fills letter by letter as well", Settings.inlineWords) { Settings.inlineWords = it }
     }

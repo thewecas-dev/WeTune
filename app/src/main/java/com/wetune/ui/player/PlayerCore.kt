@@ -219,8 +219,8 @@ fun LyricsView(t: Track, pos: Long, modifier: Modifier = Modifier.fillMaxSize())
                         .padding(vertical = 10.dp),
                 ) {
                     val lineStyle = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp)
-                    // the line being sung fills in letter by letter (word-timed lyrics, or an even sweep when estimating)
-                    if (synced && i == current && Settings.lyricsWords && line.text.isNotBlank()) SungLine(line, lines.getOrNull(i + 1)?.ms ?: Long.MAX_VALUE, pos + Lyrics.offset(t.id), lineStyle, c)
+                    // the line being sung fills in letter by letter (only when the lyrics provider timed it word by word)
+                    if (synced && i == current && Settings.lyricsWords && line.text.isNotBlank()) SungLine(line, pos + Lyrics.offset(t.id), lineStyle, c)
                     else Txt(
                         line.text.ifBlank { "♪" },
                         style = lineStyle,
@@ -384,8 +384,8 @@ private fun LyricsOffsetButton(t: Track) {
 
 /** The line being sung in the lyrics panel, lit letter by letter as the words are sung. */
 @Composable
-private fun SungLine(line: Lyrics.Line, nextMs: Long, pos: Long, style: TextStyle, c: Color) {
-    val words = remember(line, Settings.lyricsEstimate) { wordsOf(line, nextMs) }
+private fun SungLine(line: Lyrics.Line, pos: Long, style: TextStyle, c: Color) {
+    val words = remember(line) { wordsOf(line) }
         ?: return Txt(line.text, style = style, color = c)
     KaraokeText(words, smoothPosition(pos + 150), style.copy(color = c), lit = c, dim = c.copy(alpha = 0.32f))
 }
