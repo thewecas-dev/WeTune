@@ -36,7 +36,8 @@ private data class Page(val id: String, val title: String, val detail: String, v
 private val pages = listOf(
     Page("account", "Account", "YouTube Music sign-in and sync", Ic.Person),
     Page("appearance", "Appearance", "Theme, accent color, rotation", Ic.Palette),
-    Page("playback", "Playback", "Quality, volume, autoplay", Ic.Tune),
+    Page("playback", "Playback", "Maximum quality, volume, autoplay", Ic.Tune),
+    Page("audio", "Audio add-ons", "Equalizer, bass, reverb, 8D, speed, fades", Ic.Volume),
     Page("sources", "Sources", "Subsonic / Navidrome server", Ic.Server),
     Page("backup", "Backup", "Save or restore your on-device library", Ic.Backup),
     Page("about", "About", "Version and credits", Ic.Info),
@@ -83,6 +84,7 @@ fun SettingsPageScreen(id: String, open: (Screen) -> Unit, back: () -> Unit) {
             "account" -> AccountPage(open)
             "appearance" -> AppearancePage()
             "playback" -> PlaybackPage()
+            "audio" -> AudioAddonsPage()
             "sources" -> SourcesPage()
             "backup" -> BackupPage()
             else -> AboutPage()
@@ -160,21 +162,21 @@ private fun AppearancePage() {
 
 @Composable
 private fun PlaybackPage() {
-    Group("Play songs from") {
+    val levels = listOf("data" to "Data saver", "high" to "High", "max" to "Max · 320")
+    Group("Maximum quality") {
         Column(Modifier.padding(12.dp)) {
-            Segmented(listOf("yt" to "YouTube", "saavn" to "JioSaavn · 320 kbps"), Settings.playFrom, { Settings.playFrom = it })
+            Txt("On Wi-Fi", Modifier.padding(start = 4.dp, bottom = 8.dp), style = Type.label)
+            Segmented(levels, Settings.maxWifi, { Settings.maxWifi = it })
+            Txt("On mobile data", Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp), style = Type.label)
+            Segmented(levels, Settings.maxMobile, { Settings.maxMobile = it })
             Txt(
-                if (Settings.playFrom == "saavn")
-                    "Each YouTube song plays from JioSaavn's 320 kbps file when the exact same recording is found there; otherwise from YouTube. Likes, history and recommendations still go to YouTube Music."
-                else "Songs stream from YouTube (up to about 160 kbps Opus).",
-                Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
+                "Songs start right away and keep stepping up to this ceiling: YouTube's best stream (about 160 kbps Opus) first, " +
+                    "then JioSaavn's 320 kbps file when the exact same recording is found there. A better connection " +
+                    "(say, Wi-Fi after mobile data) upgrades the playing song. Data saver uses about 70 kbps. " +
+                    "Likes, history and recommendations always go to YouTube Music.",
+                Modifier.padding(start = 4.dp, top = 12.dp), style = Type.caption, color = WT.c.muted,
             )
         }
-    }
-    Group("Streaming quality") {
-        ToggleRow("High quality on Wi-Fi", "Best available bitrate", Settings.wifiHigh) { Settings.wifiHigh = it }
-        Divider(Modifier.padding(start = 16.dp))
-        ToggleRow("High quality on mobile data", "Uses more data", Settings.mobileHigh) { Settings.mobileHigh = it }
     }
     Group("Listening") {
         ToggleRow("Normalize volume", "Turns down songs mastered louder than others (YouTube)", Settings.normalize) { Settings.normalize = it }

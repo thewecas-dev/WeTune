@@ -24,20 +24,28 @@ object Resolver {
         else -> Local
     }
 
-    fun highQuality(): Boolean {
+    /** The quality ceiling for the current connection: 0 data saver, 1 high, 2 max (320 kbps). */
+    fun level(): Int {
         val cm = App.ctx.getSystemService(ConnectivityManager::class.java)
-        return if (cm.isActiveNetworkMetered) Settings.mobileHigh else Settings.wifiHigh
+        return when (if (cm.isActiveNetworkMetered) Settings.maxMobile else Settings.maxWifi) { "max" -> 2; "high" -> 1; else -> 0 }
     }
+
+    fun levelName(l: Int) = when (l) { 2 -> "max (320 kbps)"; 1 -> "high"; else -> "data saver" }
+
+    fun highQuality(): Boolean = level() >= 1
+
+    /** Step up to JioSaavn's 320 kbps copy only when the ceiling allows it. */
+    private fun wantsMax() = level() >= 2
 
     /**
      * Blocking. With "Play songs from: JioSaavn" a YouTube song is played from JioSaavn's 320 kbps file when the same
      * recording is found there ([title]/[artist]/[durationMs] describe it); otherwise, and for everything else, from its own source.
      */
     fun streamUrl(source: String, ref: String, high: Boolean = highQuality(), title: String? = null, artist: String? = null, durationMs: Long = 0): String {
-        val key = "$source:$ref:$high:${Settings.playFrom}"
+        val key = "$source:$ref:$high:${wantsMax()}"
         cache[key]?.let { (url, expires) -> if (expires > System.currentTimeMillis()) return url }
-        if (source == "yt") UpgradeLog.add("resolve $ref playFrom=${Settings.playFrom} hints=${title != null} known=${saavnMatch[ref]?.let { if (it.isEmpty()) "no-match" else "match" } ?: "unknown"}")
-        if (source == "yt" && Settings.playFrom == "saavn" && title != null) {
+        if (source == "yt") UpgradeLog.add("resolve $ref max=${wantsMax()} hints=${title != null} known=${saavnMatch[ref]?.let { if (it.isEmpty()) "no-match" else "match" } ?: "unknown"}")
+        if (source == "yt" && wantsMax() && title != null) {
             // already matched: play the 320 kbps copy straight away
             if (saavnMatch.containsKey(ref)) saavnFor(ref, title, artist.orEmpty(), durationMs, high)?.let {
                 AudioInfo.upgrading("yt:$ref", "upgraded")
@@ -51,7 +59,7 @@ object Resolver {
         cache[key] = url to System.currentTimeMillis() + TTL
         // the background search often finishes while YouTube is still answering; don't let the YouTube address win.
         // (saved first, then checked: a match landing after this check is followed by forget(), which clears it)
-        if (source == "yt" && Settings.playFrom == "saavn" && title != null && saavnMatch[ref].orEmpty().isNotEmpty())
+        if (source == "yt" && wantsMax() && title != null && saavnMatch[ref].orEmpty().isNotEmpty())
             saavnFor(ref, title, artist.orEmpty(), durationMs, high)?.let {
                 UpgradeLog.add("copy for $ref arrived during resolve; using it")
                 AudioInfo.upgrading("yt:$ref", "upgraded")

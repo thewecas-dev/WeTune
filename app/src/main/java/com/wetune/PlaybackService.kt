@@ -74,7 +74,13 @@ class PlaybackService : MediaSessionService() {
             runCatching { App.cache.keys.toList().forEach(App.cache::removeResource) }
             Settings.cacheV2 = true
         }
-        player = ExoPlayer.Builder(this)
+
+        // the audio add-ons run inside the player, after decoding (speed/pitch and skip-silence stay in Media3's own chain)
+        val renderers = object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+            override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean) =
+                androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context).setAudioProcessors(arrayOf(EffectsProcessor())).build()
+        }
+        player = ExoPlayer.Builder(this, renderers)
             // start after ~0.7 s of audio instead of 2.5 s; keep a deep buffer once playing
             .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 700, 2_000).build())
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
@@ -90,6 +96,8 @@ class PlaybackService : MediaSessionService() {
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
             .build()
         restoreQueue()
+        watchEffects()
+        watchNetwork()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
@@ -100,6 +108,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         saveQueue()
+        openSystemEffects(false)
         scope.cancel()
         session.release()
         player.release()
@@ -188,8 +197,107 @@ class PlaybackService : MediaSessionService() {
     /** Like YouTube: songs louder than the target are turned down by their loudnessDb; quiet songs are left alone. */
     private fun normalize(loudnessDb: Double?) {
         val over = if (Settings.normalize && loudnessDb != null) loudnessDb.coerceAtLeast(0.0) else 0.0
-        player.volume = 10.0.pow(-over / 20).toFloat()
+        normGain = 10.0.pow(-over / 20).toFloat()
+        applyVolume()
         AudioInfo.gainDb = (-over).toFloat()
+    }
+
+    // ---- audio add-ons ----
+
+    private var normGain = 1f
+    private var sleepFadeFrom = 0L // when the sleep timer's fade-out began, 0 = not fading
+    private var effectsOpen = false
+
+    /** Player volume = normalization × song fade (in at the start, out at the end) × sleep-timer fade. */
+    private fun applyVolume() {
+        val p = Effects.current
+        var fade = 1f
+        val fadeMs = (p.fadeSec * 1000).toLong()
+        val dur = player.duration
+        if (fadeMs > 0 && dur > 0 && dur != C.TIME_UNSET && player.isPlaying) {
+            val pos = player.currentPosition
+            val fadeIn = (pos.toFloat() / (fadeMs / 2).coerceAtLeast(1)).coerceIn(0f, 1f) // the new song comes in in half the time
+            val fadeOut = ((dur - pos).toFloat() / fadeMs).coerceIn(0f, 1f)
+            // equal-power curve: the dip sounds even rather than sudden
+            fade = kotlin.math.sin(minOf(fadeIn, fadeOut) * Math.PI.toFloat() / 2)
+        }
+        val sleep = if (sleepFadeFrom > 0) (1f - (System.currentTimeMillis() - sleepFadeFrom) / SLEEP_FADE_MS.toFloat()).coerceIn(0f, 1f) else 1f
+        player.volume = normGain * fade * sleep
+    }
+
+    /** Applies speed, pitch and skip-silence when they change, and runs the fade clock while fades are on. */
+    private fun watchEffects() {
+        Effects.sessionId = player.audioSessionId
+        openSystemEffects(true)
+        scope.launch {
+            androidx.compose.runtime.snapshotFlow { Effects.params }.collect { p ->
+                player.playbackParameters = androidx.media3.common.PlaybackParameters(p.speed, p.pitch)
+                player.skipSilenceEnabled = p.skipSilence
+                applyVolume()
+            }
+        }
+        scope.launch {
+            while (true) {
+                val busy = Effects.current.fadeSec > 0f || sleepFadeFrom > 0
+                if (busy) applyVolume()
+                delay(if (busy) 40 else 500)
+            }
+        }
+    }
+
+    /** Lets the phone's own effects (system equalizer, Dolby, SoundAlive…) attach to WeTune's audio. */
+    private fun openSystemEffects(open: Boolean) {
+        if (open == effectsOpen || player.audioSessionId == C.AUDIO_SESSION_ID_UNSET) return
+        effectsOpen = open
+        sendBroadcast(
+            Intent(if (open) android.media.audiofx.AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION else android.media.audiofx.AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION)
+                .putExtra(android.media.audiofx.AudioEffect.EXTRA_AUDIO_SESSION, player.audioSessionId)
+                .putExtra(android.media.audiofx.AudioEffect.EXTRA_PACKAGE_NAME, packageName)
+                .putExtra(android.media.audiofx.AudioEffect.EXTRA_CONTENT_TYPE, android.media.audiofx.AudioEffect.CONTENT_TYPE_MUSIC),
+        )
+    }
+
+    // ---- quality: keep stepping up to the chosen maximum ----
+
+    private var lastLevel = -1
+
+    /** When the connection gets better (e.g. mobile data → Wi-Fi), the playing song reloads at the higher quality. */
+    private fun watchNetwork() {
+        lastLevel = Resolver.level()
+        // raising the maximum in Settings upgrades the playing song too
+        scope.launch {
+            androidx.compose.runtime.snapshotFlow { Settings.maxWifi to Settings.maxMobile }.collect {
+                val now = Resolver.level()
+                if (now > lastLevel) upgradeCurrent("maximum raised to ${Resolver.levelName(now)}")
+                lastLevel = now
+            }
+        }
+        val cm = getSystemService(android.net.ConnectivityManager::class.java)
+        cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) {
+                scope.launch {
+                    val now = Resolver.level()
+                    val was = lastLevel
+                    lastLevel = now
+                    if (now > was) upgradeCurrent("connection allows ${Resolver.levelName(now)}")
+                }
+            }
+        })
+    }
+
+    /** Reloads the playing song through the resolver at the current quality level, at the same spot. */
+    private fun upgradeCurrent(why: String) {
+        val item = player.currentMediaItem ?: return
+        val t = item.track() ?: return
+        if (t.source != "yt" && t.source != "saavn") return
+        val uri = item.localConfiguration?.uri?.takeIf { it.scheme == "wetune" } ?: return
+        UpgradeLog.add("upgrade ${t.id}: $why")
+        Resolver.forget(t.source, t.ref)
+        val at = player.currentPosition
+        val u = uri.buildUpon().clearQuery().apply { uri.queryParameterNames.filter { it != "u" }.forEach { k -> appendQueryParameter(k, uri.getQueryParameter(k)) } }
+            .appendQueryParameter("u", System.currentTimeMillis().toString()).build()
+        player.replaceMediaItem(player.currentMediaItemIndex, item.buildUpon().setUri(u).build())
+        player.seekTo(at)
     }
 
     /** Sends the play to YouTube once per song, after it actually starts playing. */
@@ -234,10 +342,18 @@ class PlaybackService : MediaSessionService() {
             }
             if (customCommand.customAction == CMD_SLEEP) {
                 sleepJob?.cancel()
+                sleepFadeFrom = 0; applyVolume()
                 val minutes = args.getInt("m")
                 if (minutes > 0) sleepJob = scope.launch {
-                    delay(minutes * 60_000L)
+                    val total = minutes * 60_000L
+                    if (Effects.current.sleepFade && total > SLEEP_FADE_MS) {
+                        // drift off: the music fades out over the last 30 s instead of stopping dead
+                        delay(total - SLEEP_FADE_MS)
+                        sleepFadeFrom = System.currentTimeMillis()
+                        delay(SLEEP_FADE_MS)
+                    } else delay(total)
                     player.pause()
+                    sleepFadeFrom = 0; applyVolume()
                 }
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -328,4 +444,5 @@ class PlaybackService : MediaSessionService() {
             if (items.isNotEmpty()) player.setMediaItems(items, o.optInt("index").coerceIn(0, items.size - 1), o.optLong("pos"))
         }
     }
+    private companion object { const val SLEEP_FADE_MS = 30_000L }
 }
