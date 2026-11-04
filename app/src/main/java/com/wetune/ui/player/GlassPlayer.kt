@@ -195,7 +195,8 @@ fun GlassPlayer(ui: PlayerUi) {
             Spacer(Modifier.weight(1f).heightIn(min = 8.dp))
             // three-line lyrics sit above the title, centered; the one-line lyric sits between the title and the seek bar
             val stack = Settings.inlineStyle == "stack"
-            if (stack) { LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() }); Spacer(Modifier.height(20.dp)) }
+            // (centered in the free space between where the blur begins and the title)
+            if (stack) { LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() }); Spacer(Modifier.weight(1f).heightIn(min = 20.dp)) }
             TitleRow(ui) { pipeline = true }
             if (!stack) LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() })
             Spacer(Modifier.height(18.dp))
@@ -668,8 +669,8 @@ private fun InlineSung(line: Lyrics.Line, shown: String, pos: Long, style: andro
 private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?) {
     val i = currentLine(lines, previewMs ?: ui.pos, Lyrics.offset(ui.t.id))
     fun text(k: Int) = lines.getOrNull(k)?.text?.takeIf { it.isNotBlank() }?.let { if (Settings.romanInline) romanize(it) ?: it else it }
-    val dim = Type.body.copy(fontSize = 16.sp, lineHeight = 22.sp, textAlign = TextAlign.Center)
-    val main = Type.body.copy(fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+    val dim = Type.body.copy(fontSize = 17.sp, lineHeight = 23.sp, textAlign = TextAlign.Center)
+    val main = Type.body.copy(fontSize = 21.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
     AnimatedContent(
         i, Modifier.fillMaxWidth().padding(top = 6.dp).pressable(scale = 0.98f) { ui.toggle("lyrics") },
         transitionSpec = {
