@@ -253,7 +253,8 @@ fun LibraryScreen(open: (Screen) -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Header("Library") {
             if (tab == "playlists") IconBtn(Ic.Add, "New playlist", { creating = true })
-            IconBtn(Ic.Refresh, "Refresh", { version++ })
+            // refresh this tab (lists are otherwise kept for the session, and fetched fresh when the app starts)
+            IconBtn(Ic.Refresh, "Refresh", { LibraryCache.map.keys.removeAll { it.startsWith("$tab:") }; version++ })
         }
         ExpiredBanner()
         Pills(
@@ -268,13 +269,13 @@ fun LibraryScreen(open: (Screen) -> Unit) {
             needsYt && !signedIn -> EmptyState(Ic.Person, "Sign in to see this", "Your albums, artists, playlists and history show up here.") {
                 Btn("Sign in", { open(Screen.SettingsPage("account")) })
             }
-            tab == "liked" -> Load(version to signedIn, { (if (signedIn) Sync.likedSongs() else emptyList()) + Library.liked }, placeholder = { SkeletonRows() }) { list, _ -> TrackList(list, "Library" to "Liked songs") }
-            tab == "history" -> Load(version, { Sync.history() }, placeholder = { SkeletonRows() }) { list, _ -> TrackList(list, "Library" to "Recently played") }
+            tab == "liked" -> Cached("liked:$signedIn", { if (signedIn) Sync.likedSongs() else emptyList() }, { SkeletonRows() }) { yt -> TrackList(yt + Library.liked, "Library" to "Liked songs") }
+            tab == "history" -> Cached("history:", { Sync.history() }, { SkeletonRows() }) { list -> TrackList(list, "Library" to "Recently played") }
             tab == "downloads" -> if (Library.downloads.isEmpty()) EmptyState(Ic.Download, "No downloads yet", "Use Download in any song's menu to keep it for offline listening.") else TrackList(Library.downloads, "Library" to "Downloads")
-            tab == "device" -> Load(version, { Local.all() }, placeholder = { SkeletonRows() }) { list, _ -> TrackList(list, "Library" to "On this device") }
-            tab == "albums" -> Load(version, { Sync.albums() }, placeholder = { SkeletonGrid() }) { list, _ -> CardGrid(list.map { it.entry(openCard) }, "No saved albums") }
-            tab == "artists" -> Load(version, { Sync.artists() }, placeholder = { SkeletonGrid() }) { list, _ -> CardGrid(list.map { it.entry(openCard) }, "No followed artists") }
-            tab == "playlists" -> Load(version to signedIn, { if (signedIn) Sync.playlists() else emptyList() }, placeholder = { SkeletonGrid() }) { yt, _ ->
+            tab == "device" -> Cached("device:", { Local.all() }, { SkeletonRows() }) { list -> TrackList(list, "Library" to "On this device") }
+            tab == "albums" -> Cached("albums:", { Sync.albums() }, { SkeletonGrid() }) { list -> CardGrid(list.map { it.entry(openCard) }, "No saved albums") }
+            tab == "artists" -> Cached("artists:", { Sync.artists() }, { SkeletonGrid() }) { list -> CardGrid(list.map { it.entry(openCard) }, "No followed artists") }
+            tab == "playlists" -> Cached("playlists:$signedIn", { if (signedIn) Sync.playlists() else emptyList() }, { SkeletonGrid() }) { yt ->
                 val local = Library.playlists.map { p ->
                     GridEntry("local:${p.name}", p.name, "On this device • ${p.tracks.size} songs", p.tracks.firstOrNull()?.art, false) { open(Screen.LocalPlaylist(p.name)) }
                 }
@@ -284,7 +285,7 @@ fun LibraryScreen(open: (Screen) -> Unit) {
     }
     if (creating) NewPlaylistSheet(signedIn, onDismiss = { creating = false }) { name, onYouTube ->
         creating = false
-        if (onYouTube) io("Created $name", then = { version++ }) { Sync.createPlaylist(name) } else Library.createPlaylist(name)
+        if (onYouTube) io("Created $name", then = { LibraryCache.map.keys.removeAll { it.startsWith("playlists:") }; version++ }) { Sync.createPlaylist(name) } else Library.createPlaylist(name)
     }
 }
 
@@ -348,4 +349,15 @@ fun LocalPlaylistScreen(name: String, back: () -> Unit) {
         header = { PageHeader(p.name, "On this device", p.tracks.firstOrNull()?.art, false, back, { Library.deletePlaylist(name); back() }, p.tracks.size) },
         onRemove = { Library.removeFrom(name, it) },
     )
+}
+
+/** Library lists already fetched this session, by tab (+ sign-in state); cleared by the tab's refresh button. */
+private object LibraryCache { val map = androidx.compose.runtime.mutableStateMapOf<String, Any>() }
+
+/** Shows [key]'s cached list at once; the first time, loads it (with [placeholder]) and keeps it for the session. */
+@Composable
+private fun <T : Any> Cached(key: String, load: suspend () -> T, placeholder: @Composable () -> Unit, content: @Composable (T) -> Unit) {
+    @Suppress("UNCHECKED_CAST") val hit = LibraryCache.map[key] as T?
+    if (hit != null) return content(hit)
+    Load(key, { load().also { LibraryCache.map[key] = it } }, placeholder = placeholder) { v, _ -> content(v) }
 }
