@@ -66,6 +66,13 @@ object YouTube : Source {
         setOf(PANEL),
     ).tracks.filter { it.ref != videoId }
 
+    /** Blocking. The artist and album pages song [videoId] links to (for "Go to artist / album"). */
+    fun links(videoId: String): List<Card> {
+        val r = InnerTube.post("next", JSONObject().put("videoId", videoId).put("isAudioOnly", true))
+        val panel = findFirst(r, "playlistPanelVideoRenderer") as? JSONObject ?: return emptyList()
+        return pageLinks(panel.optJSONObject("longBylineText").runs())
+    }
+
     data class PlayerInfo(val loudnessDb: Double?, val trackingUrl: String?)
 
     fun playerInfo(videoId: String): PlayerInfo {

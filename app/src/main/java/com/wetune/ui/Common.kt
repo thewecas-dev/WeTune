@@ -245,7 +245,7 @@ fun TrackRow(t: Track, onClick: () -> Unit, onRemove: (() -> Unit)? = null, numb
 }
 
 @Composable
-fun TrackMenu(t: Track, onRemove: (() -> Unit)? = null, tint: Color = LocalContentColor.current, open: MutableState<Boolean> = remember { mutableStateOf(false) }) {
+fun TrackMenu(t: Track, onRemove: (() -> Unit)? = null, tint: Color = LocalContentColor.current, open: MutableState<Boolean> = remember { mutableStateOf(false) }, removeLabel: String = "Remove from this playlist") {
     var pick by remember { mutableStateOf(false) }
     fun close(action: () -> Unit): () -> Unit = { open.value = false; action() }
     Box {
@@ -266,7 +266,7 @@ fun TrackMenu(t: Track, onRemove: (() -> Unit)? = null, tint: Color = LocalConte
                 t.id in Downloads.active -> MenuItem("Downloading…", {}, Ic.Download, enabled = false)
                 else -> MenuItem("Download", close { Downloads.download(t) }, Ic.Download)
             }
-            if (onRemove != null) MenuItem("Remove from this playlist", close(onRemove), Ic.Close, danger = true)
+            if (onRemove != null) MenuItem(removeLabel, close(onRemove), Ic.Close, danger = true)
         }
     }
     if (pick) PlaylistPicker(t) { pick = false }

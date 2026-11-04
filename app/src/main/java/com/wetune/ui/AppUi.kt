@@ -146,7 +146,7 @@ fun AppUi() {
                 playerOpen = false
                 SearchRequest.query = q
                 stack.clear(); stack.add(Screen.Search)
-            })
+            }, onOpen = { c -> playerOpen = false; stack.add(Screen.Yt(c)) })
         }
         // Sign-in is a WebView: kept out of the blurred glass layer (re-capturing it every frame made it flicker) and
         // above the nav bar and mini-player, which it doesn't need

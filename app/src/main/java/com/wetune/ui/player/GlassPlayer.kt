@@ -129,7 +129,12 @@ fun GlassPlayer(ui: PlayerUi) {
         if (maxWidth > maxHeight) return@BoxWithConstraints LandscapePlayer(ui, seekDrag) { seekDrag = it }
         val w = maxWidth
         // Title, controls and corner buttons live in the bottom 40% (never less than they need); the cover owns the rest.
-        val controlsH = maxOf(maxHeight * 0.45f, 400.dp)
+        // no lyric line (none for this song, or switched off): the controls need less room, so the cover sits a bit lower
+        val lyricLines = rememberLyrics(ui.t)
+        var hasLyric by remember { mutableStateOf(true) }
+        if (lyricLines != null) hasLyric = lyricLines.isNotEmpty() && lyricLines.first().ms >= 0
+        val lower by animateDpAsState(if (hasLyric && Settings.showInline) 0.dp else if (Settings.inlineStyle == "stack") 72.dp else 30.dp, tween(450), label = "lower")
+        val controlsH = maxOf(maxHeight * 0.45f, 400.dp) - lower
         val split = maxHeight - controlsH
 
         // A new song crossfades in; dragging sideways moves only the cover (not the background) to show the skip coming.
@@ -156,15 +161,14 @@ fun GlassPlayer(ui: PlayerUi) {
         // Top 60%: the corner buttons. On the cover: swipe to skip, long-press for a menu.
         Column(Modifier.fillMaxWidth().height(split).statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SoftCircle(Ic.Down, "Close player", onClick = ui.close)
+                // (no close button: swipe down or Back closes the player)
                 // what the queue was started from: "PLAYING FROM PLAYLIST" over "Tamil Hits 2025"
-                Column(Modifier.weight(1f).padding(horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.weight(1f).heightIn(min = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Playback.from?.let { (kind, name) ->
                         Txt("PLAYING FROM ${kind.uppercase()}", style = Type.overline.copy(fontSize = 10.sp), color = Color.White.copy(alpha = 0.65f), maxLines = 1)
                         Txt(name, Modifier.basicMarquee(iterations = Int.MAX_VALUE), style = Type.caption.copy(fontSize = 13.sp), color = Color.White, weight = FontWeight.SemiBold, maxLines = 1, align = TextAlign.Center)
                     }
                 }
-                Spacer(Modifier.width(46.dp)) // balances the close button so the label stays centered (⋯ now sits by the title)
             }
             SleepBadge(Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp))
             Box(
@@ -343,7 +347,6 @@ private fun LandscapePlayer(ui: PlayerUi, seekDrag: Float?, onSeekDrag: (Float?)
             }
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    SoftCircle(Ic.Down, "Close player", onClick = ui.close)
                     Spacer(Modifier.weight(1f))
                     SoftCircle(Ic.Lyrics, "Lyrics", ui.pane == "lyrics") { ui.toggle("lyrics") }
                     Spacer(Modifier.width(10.dp))
@@ -373,6 +376,7 @@ private fun LyricLine(ui: PlayerUi, previewMs: Long?) {
     // title, heart and ⋯ above it glide instead of jumping
     var synced by remember { mutableStateOf(lines.isNotEmpty() && lines.first().ms >= 0) } // no animation when the player opens
     if (loaded != null) synced = lines.isNotEmpty() && lines.first().ms >= 0
+    if (!Settings.showInline) synced = false // Settings → Appearance → Now Playing → Lyrics on Now Playing
     AnimatedVisibility(
         synced,
         enter = expandVertically(spring(dampingRatio = 0.9f, stiffness = 300f), expandFrom = Alignment.Top) + fadeIn(tween(300, delayMillis = 120)),
@@ -464,8 +468,7 @@ private fun CoverMenu(ui: PlayerUi, open: Boolean, onDismiss: () -> Unit) {
         if (ui.t.source == "yt") MenuItem("Start radio", close { Playback.startRadio(ui.t) }, Ic.Radio)
         MenuItem("Add to playlist…", close { pick = true }, Ic.AddPlaylist)
         if (ui.t.source != "local" && Library.downloads.none { it.id == ui.t.id }) MenuItem("Download", close { Downloads.download(ui.t) }, Ic.Download)
-        MenuItem("Go to artist", close { ui.search(ui.t.artist.substringBefore(",").trim()) }, Ic.Person)
-        if (ui.t.album.isNotBlank()) MenuItem("Go to album", close { ui.search(ui.t.album) }, Ic.Library)
+        GoToItems(ui, open) { a -> close(a)() }
     }
     if (pick) PlaylistPicker(ui.t) { pick = false }
 }
@@ -506,10 +509,8 @@ private fun PlayerMenu(ui: PlayerUi, onPipeline: (() -> Unit)? = null) {
                 when (Playback.repeat) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "Repeat: all"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "Repeat: this song"; else -> "Repeat: off" },
                 { Playback.cycleRepeat() }, if (Playback.repeat == androidx.media3.common.Player.REPEAT_MODE_ONE) Ic.RepeatOne else Ic.Repeat,
             )
+            GoToItems(ui, open) { a -> close(a)() }
             if (onPipeline != null) MenuItem("Audio pipeline", close(onPipeline), Ic.Pipeline)
-            val fill = FillModes.firstOrNull { it.first == Settings.npFill } ?: FillModes.first()
-            // cycles through the backgrounds, for quick comparing
-            MenuItem("Background: ${fill.second}", { Settings.npFill = FillModes[(FillModes.indexOf(fill) + 1) % FillModes.size].first }, Ic.Library)
         }
     }
     if (pick) PlaylistPicker(ui.t) { pick = false }
@@ -689,4 +690,21 @@ private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?)
             Txt(text(k + 1).orEmpty(), Modifier.fillMaxWidth(), style = dim, color = Color.White.copy(alpha = 0.4f), maxLines = 1)
         }
     }
+}
+
+/**
+ * "Go to <artist>" for each linked artist and "Go to album", opening their real pages (looked up when the menu opens);
+ * a search stands in while they load, or for songs without pages.
+ */
+@Composable
+private fun GoToItems(ui: PlayerUi, menuOpen: Boolean, run: (() -> Unit) -> Unit) {
+    val links by produceState<List<com.wetune.sources.Card>?>(null, menuOpen, ui.t.id) {
+        if (menuOpen && ui.t.source == "yt") value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.wetune.youtube.YouTube.links(ui.t.ref) }.getOrNull() }
+    }
+    val artists = links.orEmpty().filter { it.subtitle == "Artist" }
+    val album = links.orEmpty().firstOrNull { it.subtitle == "Album" }
+    if (artists.isNotEmpty()) artists.forEach { a -> MenuItem("Go to ${a.title}", { run { ui.open(a) } }, Ic.Person) }
+    else MenuItem("Go to artist", { run { ui.search(ui.t.artist.substringBefore(",").trim()) } }, Ic.Person)
+    if (album != null) MenuItem("Go to album", { run { ui.open(album) } }, Ic.Library)
+    else if (ui.t.album.isNotBlank()) MenuItem("Go to album", { run { ui.search(ui.t.album) } }, Ic.Library)
 }

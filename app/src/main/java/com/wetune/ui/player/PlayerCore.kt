@@ -36,6 +36,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
@@ -115,6 +117,8 @@ class PlayerUi(
     val openSleep: () -> Unit,
     /** Closes the player and searches for [query] (tap on the artist or album). */
     val search: (String) -> Unit,
+    /** Closes the player and opens an artist or album page. */
+    val open: (com.wetune.sources.Card) -> Unit = {},
 ) {
     val fraction: Float get() = if (duration > 0) (pos.toFloat() / duration).coerceIn(0f, 1f) else 0f
     fun seekTo(f: Float) = Playback.seek((f.coerceIn(0f, 1f) * duration).toLong())
@@ -122,13 +126,24 @@ class PlayerUi(
 }
 
 @Composable
-fun PlayerScreen(onClose: () -> Unit, onSearch: (String) -> Unit) {
+fun PlayerScreen(onClose: () -> Unit, onSearch: (String) -> Unit, onOpen: (com.wetune.sources.Card) -> Unit = {}) {
+    // the status bar (clock, notifications) steps away while the player is open; a swipe from the top shows it for a moment
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.DisposableEffect(Settings.npHideStatus) {
+        val window = generateSequence(view.context) { (it as? android.content.ContextWrapper)?.baseContext }.filterIsInstance<android.app.Activity>().firstOrNull()?.window
+        val bars = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+        if (Settings.npHideStatus && bars != null) {
+            bars.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            bars.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+        }
+        onDispose { bars?.show(androidx.core.view.WindowInsetsCompat.Type.statusBars()) }
+    }
     val t = Playback.current ?: return
     val pal = NowColors.palette ?: SunsetPalette // computed once per song in AppUi
     var pane by rememberSaveable { mutableStateOf("art") }
     var sleep by remember { mutableStateOf(false) }
     val pos by rememberPosition()
-    val ui = PlayerUi(t, pal, pos, Playback.duration().takeIf { it > 0 } ?: t.durationMs, pane, { pane = it }, onClose, { sleep = true }, onSearch)
+    val ui = PlayerUi(t, pal, pos, Playback.duration().takeIf { it > 0 } ?: t.durationMs, pane, { pane = it }, onClose, { sleep = true }, onSearch, onOpen)
 
     // Swipe down: the player follows the finger and closes after a short pull (~110 dp) or any quick downward flick;
     // otherwise it springs back.
@@ -283,28 +298,49 @@ fun QueueView(modifier: Modifier = Modifier.fillMaxSize()) {
                 ToolPill(Ic.Infinite, if (Settings.autoplay) "Infinite on: similar songs keep coming" else "Infinite off", Settings.autoplay) { Settings.autoplay = !Settings.autoplay }
             }
         }
+        // stable keys (a song's id, numbered when it's queued twice) so moves animate instead of redrawing in place
+        val keys = remember(Playback.queue) { val seen = HashMap<String, Int>(); Playback.queue.map { t -> val n = seen.merge(t.id, 1, Int::plus)!!; "${t.id}#$n" } }
+        val target = if (dragging >= 0) (dragging + (dragY / rowPx).roundToInt()).coerceIn(0, Playback.queue.lastIndex) else -1
         LazyColumn(Modifier.fillMaxSize(), state) {
-            itemsIndexed(Playback.queue, key = { i, t -> "$i:${t.id}" }) { i, t ->
+            itemsIndexed(Playback.queue, key = { i, _ -> keys.getOrElse(i) { "$i" } }) { i, t ->
                 val current = i == Playback.index
                 var swipe by remember { mutableFloatStateOf(0f) }
                 val lifted = dragging == i
+                // while a song is dragged, the ones it passes slide out of its way
+                val make = when {
+                    dragging < 0 || lifted -> 0f
+                    i in (dragging + 1)..target -> -rowPx
+                    i in target until dragging -> rowPx
+                    else -> 0f
+                }
+                val shift by animateFloatAsState(make, spring(dampingRatio = 0.85f, stiffness = 500f), label = "shift")
+                val lift by animateFloatAsState(if (lifted) 1f else 0f, spring(dampingRatio = 0.7f), label = "lift")
                 Row(
                     Modifier.fillMaxWidth().height(rowH)
+                        .then(if (lifted || dragging >= 0) Modifier else Modifier.animateItem())
+                        .zIndex(if (lifted) 1f else 0f)
                         .graphicsLayer {
                             translationX = swipe
+                            translationY = if (lifted) dragY else shift
                             alpha = 1f - (kotlin.math.abs(swipe) / size.width).coerceIn(0f, 0.7f)
-                            if (lifted) { translationY = dragY; scaleX = 1.03f; scaleY = 1.03f; shadowElevation = 18f }
+                            scaleX = 1f + 0.03f * lift; scaleY = 1f + 0.03f * lift
+                            shadowElevation = 24f * lift
+                            shape = RoundedCornerShape(18.dp); clip = true
                         }
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(if (current || lifted) c.copy(alpha = 0.12f) else Color.Transparent)
+                        .background(if (current || lifted) c.copy(alpha = if (lifted) 0.16f else 0.12f) else Color.Transparent)
                         .pointerInput(i) {
                             detectHorizontalDragGestures(
                                 onDragEnd = { if (!current && kotlin.math.abs(swipe) > size.width * 0.35f) Playback.remove(i); swipe = 0f },
                                 onDragCancel = { swipe = 0f },
                             ) { ch, dx -> if (!current) { ch.consume(); swipe += dx } }
                         }
-                        .pointerInput(i) {
-                            detectDragGesturesAfterLongPress(
+                        .pressable(scale = 0.98f) { Playback.skipTo(i) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // drag handle, left of the cover: grab and move up or down
+                    Box(
+                        Modifier.size(40.dp, rowH).pointerInput(i) {
+                            detectVerticalDragGestures(
                                 onDragStart = { dragging = i; dragY = 0f },
                                 onDragEnd = {
                                     val to = (i + (dragY / rowPx).roundToInt()).coerceIn(0, Playback.queue.size - 1)
@@ -312,18 +348,18 @@ fun QueueView(modifier: Modifier = Modifier.fillMaxSize()) {
                                     dragging = -1; dragY = 0f
                                 },
                                 onDragCancel = { dragging = -1; dragY = 0f },
-                            ) { ch, d -> ch.consume(); dragY += d.y }
-                        }
-                        .pressable(scale = 0.98f) { Playback.skipTo(i) }.padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                            ) { ch, dy -> ch.consume(); dragY += dy }
+                        }.semantics { contentDescription = "Drag to reorder ${t.title}" },
+                        Alignment.Center,
+                    ) { Icon(Ic.Grip, null, size = 20.dp, tint = c.copy(alpha = if (lifted) 0.9f else 0.45f)) }
                     Art(t.art, Modifier.size(46.dp), RoundedCornerShape(10.dp))
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                         Txt(t.title, style = Type.bodyStrong, maxLines = 1)
                         Txt(t.artist, style = Type.caption, color = c.copy(alpha = 0.6f), maxLines = 1)
                     }
-                    if (current) Equalizer(Playback.playing, c, Modifier.padding(end = 8.dp))
-                    else Icon(Ic.Grip, "Hold and drag to reorder", size = 20.dp, tint = c.copy(alpha = 0.45f))
+                    if (current) Equalizer(Playback.playing, c, Modifier.padding(end = 4.dp))
+                    // options for this song: play next, radio, like, playlist, download… and remove from the queue
+                    TrackMenu(t, onRemove = if (current) null else ({ Playback.remove(i) }), tint = c, removeLabel = "Remove from queue")
                 }
             }
         }

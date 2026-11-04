@@ -154,3 +154,16 @@ fun sections(root: Any?): List<Section> = findAll(root, setOf(CAROUSEL, SHELF)).
 fun continuation(node: Any?): String? =
     (findFirst(node, "continuationCommand") as? JSONObject)?.optString("token").nonEmpty()
         ?: (findFirst(node, "nextContinuationData") as? JSONObject)?.optString("continuation").nonEmpty()
+
+/**
+ * The artist and album pages a song links to, from its byline in YouTube's queue data (artists first, then the album).
+ * Only names YouTube links come back; the rest have no page to open.
+ */
+fun pageLinks(byline: List<JSONObject>): List<Card> = byline.mapNotNull { r ->
+    val id = r.obj("navigationEndpoint", "browseEndpoint")?.optString("browseId")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+    when (pageType(r)) {
+        "MUSIC_PAGE_TYPE_ARTIST" -> Card(id, r.optString("text"), "Artist", null)
+        "MUSIC_PAGE_TYPE_ALBUM" -> Card(id, r.optString("text"), "Album", null)
+        else -> null
+    }
+}.sortedBy { it.subtitle != "Artist" }

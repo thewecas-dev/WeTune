@@ -137,15 +137,17 @@ private fun AppearancePage() {
         ToggleRow("Match the song", "Buttons, pills and highlights take their color from the current cover", Settings.matchAccent) { Settings.matchAccent = it }
     }
     Group("Now Playing") {
+        ToggleRow("Hide the status bar", "The clock and notification icons step away while Now Playing is open. Swipe down from the top to see them.", Settings.npHideStatus) { Settings.npHideStatus = it }
+        Divider(Modifier.padding(start = 16.dp))
         ToggleRow("Volume slider", "Show the phone's volume under the play controls", Settings.showVolume) { Settings.showVolume = it }
         Divider(Modifier.padding(start = 16.dp))
         ToggleRow("Romanized inline lyrics", "The lyric line above the seek bar shows Tamil, Hindi, Telugu… in English letters. The full lyrics stay as they are.", Settings.romanInline) { Settings.romanInline = it }
         Divider(Modifier.padding(start = 16.dp))
-        Column(Modifier.padding(12.dp)) {
-            Txt("Lyric above the seek bar", Modifier.padding(start = 4.dp, bottom = 8.dp), style = Type.label)
+        ToggleRow("Lyrics on Now Playing", "The line being sung, by the title. Tap it to open the full lyrics.", Settings.showInline) { Settings.showInline = it }
+        if (Settings.showInline) Column(Modifier.padding(12.dp)) {
             Segmented(listOf("line" to "One line", "stack" to "Three lines"), Settings.inlineStyle, { Settings.inlineStyle = it })
             Txt(
-                if (Settings.inlineStyle == "stack") "The line being sung, centered, with the one before and after it dimmed." else "Just the line being sung.",
+                if (Settings.inlineStyle == "stack") "Above the title, centered: the line being sung with the one before and after it dimmed." else "Under the title: just the line being sung.",
                 Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
             )
         }
