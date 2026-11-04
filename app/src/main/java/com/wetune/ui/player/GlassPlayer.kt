@@ -228,7 +228,9 @@ fun GlassPlayer(ui: PlayerUi) {
 
         // classic, strips and disc: the framed cover, evenly spaced like Bleeding edge's (which draws it in the background)
         if (Settings.npStyle != "bleed") {
-            val base = when (Settings.npStyle) { "disc" -> w * 0.74f; "strips" -> w * 0.8f; else -> w - 48.dp }
+            val withLyrics = when (Settings.npStyle) { "disc" -> w * 0.74f; "strips" -> w * 0.8f; else -> w - 48.dp }
+            // no lyrics: the cover grows into the freed space (to the screen width less 16 dp margins) instead of floating small
+            val base = androidx.compose.ui.unit.lerp(withLyrics, w - 32.dp, 1f - (reserve / fullReserve).coerceIn(0f, 1f))
             val size = minOf(base, space.room).coerceAtLeast(120.dp)
             val top = space.topFor(size)
             androidx.compose.runtime.SideEffect { coverBottom = top + size }
