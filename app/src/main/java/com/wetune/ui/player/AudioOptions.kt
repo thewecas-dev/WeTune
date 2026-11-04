@@ -39,23 +39,20 @@ fun AudioOptionsSheet(t: Track, onPipeline: () -> Unit, onDismiss: () -> Unit) {
         if (t.source != "yt") return@Sheet Txt("This song has only one version.", Modifier.padding(top = 16.dp), style = Type.caption, color = c.muted)
         Txt("OTHER VERSIONS", Modifier.padding(top = 20.dp, bottom = 4.dp), style = Type.overline, color = c.muted)
         Txt("Pick the right one if the song playing isn't the recording you wanted. WeTune remembers it for this song.", style = Type.caption, color = c.muted)
-        VersionRow("Automatic", "Best match from your sources, in your order", null, pinned == null) { Playback.useVersion(t, null); onDismiss() }
-        // each source shows its versions as soon as it answers (usually already fetched in the background);
-        // a source still searching shows a small spinner by its name
+        VersionRow("Automatic", "Best match from your sources, in your order", null, null, pinned == null) { Playback.useVersion(t, null); onDismiss() }
+        // usually already fetched in the background while the song plays
         val sources = androidx.compose.runtime.remember(t.id) { Resolver.versionSources(t) }
         val tick by androidx.compose.runtime.produceState(0, sources) { while (sources.any { !it.future.isDone }) { kotlinx.coroutines.delay(150); value++ } ; value++ }
         tick // re-read the lookups as they finish
-        // highest quality first: sources by their best version (YouTube among them), each source's rows best first;
-        // sources that found nothing after those, and the ones still searching at the bottom
-        val answered = sources.filter { it.future.isDone }.map { it.name to runCatching { it.future.get() }.getOrDefault(emptyList()).sortedByDescending { v -> rank(v.quality) } } +
-            ("YouTube" to listOf(Resolver.original(t)))
-        answered.sortedWith(compareBy<Pair<String, List<Resolver.Version>>> { it.second.isEmpty() }.thenByDescending { it.second.maxOfOrNull { v -> rank(v.quality) } ?: 0 })
-            .forEach { (name, list) ->
-                SourceHeader(name, loading = false)
-                if (list.isEmpty()) Txt("No versions found", Modifier.padding(start = 4.dp, bottom = 6.dp), style = Type.caption, color = c.muted)
-                VersionList(t, list, playing, pinned, onDismiss)
-            }
-        sources.filter { !it.future.isDone }.forEach { SourceHeader(it.name, loading = true) }
+        // one list, highest quality first, whatever the source; anything new slots into its place as it arrives,
+        // and a single row at the bottom says how many sources are still searching
+        val found = sources.filter { it.future.isDone }.flatMap { runCatching { it.future.get() }.getOrDefault(emptyList()) } + Resolver.original(t)
+        VersionList(t, found.sortedByDescending { rank(it.quality) }, playing, pinned, onDismiss)
+        val waiting = sources.count { !it.future.isDone }
+        if (waiting > 0) Row(Modifier.padding(top = 12.dp, start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Spinner(size = 14.dp, color = c.muted)
+            Txt("Searching $waiting more source${if (waiting > 1) "s" else ""}…", Modifier.padding(start = 10.dp), style = Type.caption, color = c.muted)
+        }
     }
 }
 
@@ -63,7 +60,7 @@ fun AudioOptionsSheet(t: Track, onPipeline: () -> Unit, onDismiss: () -> Unit) {
 private fun VersionList(t: Track, list: List<Resolver.Version>, playing: String?, pinned: String?, onDismiss: () -> Unit) {
     list.forEach { v ->
         val len = if (v.durationMs > 0) " · %d:%02d".format(v.durationMs / 60_000, v.durationMs / 1000 % 60) else ""
-        VersionRow(v.title, listOf(v.detail, v.quality).filter(String::isNotBlank).joinToString(" · ") + len, v.choice == playing, v.choice == pinned) {
+        VersionRow(v.title, v.detail, listOf(v.quality, v.source).filter(String::isNotBlank).joinToString(" · ") + len, v.choice == playing, v.choice == pinned) {
             Playback.useVersion(t, v.choice); onDismiss()
         }
         Divider(Modifier.padding(start = 4.dp))
@@ -79,26 +76,18 @@ private fun nowSource(t: Track, playing: String?): String = when {
 }
 
 @Composable
-private fun VersionRow(title: String, detail: String, playing: Boolean?, chosen: Boolean, onClick: () -> Unit) {
+private fun VersionRow(title: String, detail: String, quality: String?, playing: Boolean?, chosen: Boolean, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).pressable(scale = 0.98f, onClick = onClick).padding(vertical = 10.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Txt(title, style = Type.bodyStrong, maxLines = 1)
-            Txt(detail, style = Type.caption, color = WT.c.muted, maxLines = 2)
+            Txt(detail, style = Type.caption, color = WT.c.muted, maxLines = 1)
+            if (quality != null) Txt(quality, Modifier.padding(top = 1.dp), style = Type.caption, color = WT.c.text.copy(alpha = 0.8f), maxLines = 1)
         }
         if (playing == true) Icon(Ic.Volume, "Playing", Modifier.padding(start = 8.dp), size = 18.dp, tint = WT.c.accent)
         Row(Modifier.padding(start = 10.dp).size(24.dp), verticalAlignment = Alignment.CenterVertically) { CheckMark(chosen) }
-    }
-}
-
-/** A source's name over its versions, with a small spinner while it's still searching. */
-@Composable
-private fun SourceHeader(name: String, loading: Boolean) {
-    Row(Modifier.padding(top = 14.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Txt(name.uppercase(), style = Type.overline, color = WT.c.accent)
-        if (loading) Spinner(Modifier.padding(start = 8.dp), size = 12.dp, color = WT.c.muted)
     }
 }
 
