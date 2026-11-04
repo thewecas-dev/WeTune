@@ -89,7 +89,8 @@ private fun rememberCover(url: String?): ImageBitmap? {
  * with the space around it filled per [Settings.npFill]. Blur mode keeps the earlier look (8% side crop).
  */
 @Composable
-fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, t: Track, coverShift: () -> Float = { 0f }) {
+fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, t: Track, sideScale: Float = SideScale, coverShift: () -> Float = { 0f }) {
+    // [sideScale]: how much wider than the screen the cover is drawn (1.14 trims ~6% per side; 1 = the whole cover)
     // [clearTop]: bottom of the grabber and "Playing from" header; the cover always starts below it
     // (only stable inputs, so the backdrop skips the 4-times-a-second recompositions from the playback position)
     val floor = lerp(pal.sea, Color.Black, 0.6f)
@@ -97,7 +98,7 @@ fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: F
     val img = rememberCover(t.art)
 
     when {
-        mode == "blur" || img == null -> BlurBackdrop(t, w, split, clearTop, coverAlpha)
+        mode == "blur" || img == null -> BlurBackdrop(t, w, split, clearTop, coverAlpha, sideScale)
         else -> {
             // Whole cover, full width; wide thumbnails stay whole too. Sits right on top of the controls.
             // Placed to never overlap the top buttons or the title: if the full-width cover fits between them it sits
@@ -106,8 +107,8 @@ fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: F
             val ratio = img.height.toFloat() / img.width
             val topLimit = clearTop
             val room = (split - topLimit).coerceAtLeast(120.dp)
-            val fits = w * SideScale * ratio <= room
-            val coverW = if (fits) w * SideScale else room / ratio
+            val fits = w * sideScale * ratio <= room
+            val coverW = if (fits) w * sideScale else room / ratio
             val coverH = coverW * ratio
             val top = if (fits) split - coverH else topLimit
             if (!fits) Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = coverAlpha }.blur(60.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.9f)
@@ -185,7 +186,7 @@ private val noiseTile: ImageBitmap by lazy {
 }
 
 /** Every mode crops about 6% off each side of the cover (1 / 0.88), leaving less to fill. */
-private const val SideScale = 1.14f
+internal const val SideScale = 1.14f
 private const val EdgeColumns = 10
 private const val FanSlices = 28
 private const val FanSpread = 0.9f // how much wider the stretch gets by the screen edge
@@ -251,9 +252,9 @@ private fun DrawScope.extend(img: ImageBitmap, top: Float, h: Float, mirror: Boo
 
 /** The earlier look: cover 14% wider than the screen (6% cropped per side, same as the others) over a zoomed blur of itself. */
 @Composable
-private fun BlurBackdrop(t: Track, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float) {
+private fun BlurBackdrop(t: Track, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, sideScale: Float) {
     // on short screens the cover shrinks so it never runs under the title, nor up under the header
-    val size = minOf(w * SideScale, (split - clearTop) / 0.95f).coerceAtLeast(120.dp)
+    val size = minOf(w * sideScale, (split - clearTop) / 0.95f).coerceAtLeast(120.dp)
     val top = maxOf(split + size * 0.05f - size, clearTop)
     val coverMod = Modifier.offset(y = top).fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally, unbounded = true).requiredSize(size)
     Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.6f; scaleY = 1.6f }.blur(70.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.85f)

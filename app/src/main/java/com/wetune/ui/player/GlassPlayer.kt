@@ -141,12 +141,14 @@ fun GlassPlayer(ui: PlayerUi) {
         if (lyricLines != null) hasLyric = lyricLines.isNotEmpty() && lyricLines.first().ms >= 0
         val lower by animateDpAsState(if (hasLyric && Settings.showInline) 0.dp else if (Settings.inlineStyle == "stack") 72.dp else 30.dp, tween(450), label = "lower")
         val controlsH = maxOf(maxHeight * 0.45f, 400.dp) - lower
+        // with lyrics showing the cover has less room, so Bleeding edge shows it whole (no side crop); without, the usual slight trim
+        val sideScale by animateFloatAsState(if (hasLyric && Settings.showInline) 1f else SideScale, tween(450), label = "crop")
         val split = maxHeight - controlsH
 
         // A new song crossfades in; dragging sideways moves only the cover (not the background) to show the skip coming.
         Crossfade(ui.t, Modifier.blur(paneBlur, BlurredEdgeTreatment.Rectangle), animationSpec = tween(650), label = "song") { t ->
             Box(Modifier.fillMaxSize()) {
-                if (Settings.npStyle == "bleed") CoverBackdrop(ui.pal, w, split, clearTop, coverAlpha, t) { swipe.value * 0.5f }
+                if (Settings.npStyle == "bleed") CoverBackdrop(ui.pal, w, split, clearTop, coverAlpha, t, sideScale) { swipe.value * 0.5f }
                 else StyledBackdrop(Settings.npStyle, ui.pal, t, split)
             }
         }
@@ -171,10 +173,10 @@ fun GlassPlayer(ui: PlayerUi) {
             // grabber: tap to close, or drag down (the whole player follows a downward drag)
             Box(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).pressable(scale = 0.95f, onClick = ui.close)
-                    .semantics { contentDescription = "Close player" }.padding(top = 4.dp, bottom = 6.dp),
+                    .semantics { contentDescription = "Close player" }.padding(top = 0.dp, bottom = 10.dp),
                 Alignment.Center,
             ) { Box(Modifier.size(40.dp, 5.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.55f))) }
-            Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 // (no close button: swipe down or Back closes the player)
                 // what the queue was started from: "PLAYING FROM PLAYLIST" over "Tamil Hits 2025"
                 Column(Modifier.weight(1f).heightIn(min = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
