@@ -143,7 +143,7 @@ fun GlassPlayer(ui: PlayerUi) {
         if (lyricLines != null) hasLyric = lyricLines.isNotEmpty() && lyricLines.first().ms >= 0
         val lower by animateDpAsState(if (hasLyric && Settings.showInline) 0.dp else 56.dp, tween(450), label = "lower")
         // the controls block (title → bottom row) and, above it, a fixed space for the lyrics
-        val blockH = maxOf(340.dp, maxHeight * 0.4f)
+        val blockH = maxOf(310.dp, maxHeight * 0.36f)
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val controlsH = blockH + 110.dp + navBottom + 8.dp // 110 dp for the lyrics, whatever the navigation bar takes
         // with lyrics showing the cover has less room, so Bleeding edge shows it whole (no side crop); without, the usual slight trim
