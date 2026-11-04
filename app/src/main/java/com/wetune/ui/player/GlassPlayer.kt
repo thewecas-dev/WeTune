@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.runtime.DisposableEffect
@@ -141,7 +142,10 @@ fun GlassPlayer(ui: PlayerUi) {
         var hasLyric by remember { mutableStateOf(true) }
         if (lyricLines != null) hasLyric = lyricLines.isNotEmpty() && lyricLines.first().ms >= 0
         val lower by animateDpAsState(if (hasLyric && Settings.showInline) 0.dp else 56.dp, tween(450), label = "lower")
-        val controlsH = maxOf(maxHeight * 0.45f, 400.dp)
+        // the controls block (title → bottom row) and, above it, a fixed space for the lyrics
+        val blockH = maxOf(340.dp, maxHeight * 0.4f)
+        val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val controlsH = blockH + 110.dp + navBottom + 8.dp // 110 dp for the lyrics, whatever the navigation bar takes
         // with lyrics showing the cover has less room, so Bleeding edge shows it whole (no side crop); without, the usual slight trim
         val sideScale by animateFloatAsState(if (hasLyric && Settings.showInline) 1f else SideScale, tween(450), label = "crop")
         val split = maxHeight - controlsH + lower // where the cover area ends (the controls block itself stays fixed)
@@ -217,18 +221,20 @@ fun GlassPlayer(ui: PlayerUi) {
             // lyrics (one line or three) centered in the free space between where the blur begins and the title;
             // they open and close inside this space, so nothing below them moves
             Box(Modifier.weight(1f).fillMaxWidth().padding(bottom = 12.dp), Alignment.Center) { LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() }) }
-            // the controls: a fixed block pinned to the bottom
-            TitleRow(ui) { pipeline = true }
-            Spacer(Modifier.height(18.dp))
-            GlassSeek(ui, onQuality = { audioOptions = true }) { seekDrag = it }
-            Spacer(Modifier.height(22.dp))
-            Transport()
-            Spacer(Modifier.height(22.dp))
-            if (Settings.showVolume) {
-                VolumeRow()
-                Spacer(Modifier.height(26.dp))
+            // the controls: a fixed-height block pinned to the bottom, rows spaced evenly inside it
+            Column(Modifier.fillMaxWidth().height(blockH)) {
+                TitleRow(ui) { pipeline = true }
+                Spacer(Modifier.weight(1f))
+                GlassSeek(ui, onQuality = { audioOptions = true }) { seekDrag = it }
+                Spacer(Modifier.weight(1f))
+                Transport()
+                Spacer(Modifier.weight(1f))
+                if (Settings.showVolume) {
+                    VolumeRow()
+                    Spacer(Modifier.weight(1f))
+                }
+                BottomBar(ui)
             }
-            BottomBar(ui)
         }
         }
         }
@@ -399,7 +405,8 @@ private fun LyricLine(ui: PlayerUi, previewMs: Long?) {
         exit = shrinkVertically(spring(dampingRatio = 0.9f, stiffness = 300f), shrinkTowards = Alignment.Top) + fadeOut(tween(180)),
     ) {
         // empty while loading or closing: a blank of the same height, so the line has something to shrink
-        if (Settings.inlineStyle == "stack" && lines.isNotEmpty()) StackLines(ui, lines, previewMs) else LyricLineContent(ui, lines, previewMs)
+        // (the three-line style keeps its full height while the next song's lyrics load, so nothing shrinks and regrows)
+        if (Settings.inlineStyle == "stack") StackLines(ui, lines, previewMs) else LyricLineContent(ui, lines, previewMs)
     }
 }
 
@@ -702,7 +709,8 @@ private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?)
             if (cur != null && sung != null && Settings.inlineWords && previewMs == null)
                 InlineSung(sung, cur, ui.pos + Lyrics.offset(ui.t.id), main, Modifier.fillMaxWidth().padding(vertical = 4.dp))
             else if (cur != null) Txt(cur, Modifier.fillMaxWidth().padding(vertical = 4.dp), style = main, color = Color.White, maxLines = 2)
-            else Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), Alignment.Center) { MusicBreak() }
+            else if (lines.isEmpty()) Txt("", Modifier.fillMaxWidth().padding(vertical = 4.dp), style = main, maxLines = 1) // loading: same height, nothing shown
+            else Box(Modifier.fillMaxWidth().heightIn(min = 31.dp).padding(vertical = 4.dp), Alignment.Center) { MusicBreak() } // a full line tall, like the text
             Txt(text(k + 1).orEmpty(), Modifier.fillMaxWidth(), style = dim, color = Color.White.copy(alpha = 0.4f), maxLines = 1)
         }
     }
