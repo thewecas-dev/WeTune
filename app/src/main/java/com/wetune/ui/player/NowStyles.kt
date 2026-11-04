@@ -60,7 +60,7 @@ fun StyledBackdrop(style: String, pal: ArtPalette, t: Track, split: Dp) {
         }
         if (style == "strips") Canvas(Modifier.fillMaxSize()) {
             // ribbed glass: each strip is lit on its left edge and shaded on its right, like light bending through flutes
-            val w = 15.dp.toPx()
+            val w = 26.dp.toPx() // strip width
             var x = -w * 0.3f
             val strip = Brush.horizontalGradient(
                 0f to Color.White.copy(alpha = 0.16f), 0.18f to Color.White.copy(alpha = 0.05f), 0.55f to Color.Transparent,
