@@ -89,7 +89,8 @@ private fun rememberCover(url: String?): ImageBitmap? {
  * with the space around it filled per [Settings.npFill]. Blur mode keeps the earlier look (8% side crop).
  */
 @Composable
-fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, t: Track, sideScale: Float = SideScale, coverShift: () -> Float = { 0f }) {
+fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, t: Track, sideScale: Float = SideScale, onCoverBottom: (Dp) -> Unit = {}, coverShift: () -> Float = { 0f }) {
+    // [onCoverBottom]: where the cover ends, so the lyrics can sit midway between it and the title
     // [sideScale]: how much wider than the screen the cover is drawn (1.14 trims ~6% per side; 1 = the whole cover)
     // [clearTop]: bottom of the grabber and "Playing from" header; the cover always starts below it
     // (only stable inputs, so the backdrop skips the 4-times-a-second recompositions from the playback position)
@@ -98,7 +99,7 @@ fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: F
     val img = rememberCover(t.art)
 
     when {
-        mode == "blur" || img == null -> BlurBackdrop(t, w, split, clearTop, coverAlpha, sideScale)
+        mode == "blur" || img == null -> BlurBackdrop(t, w, split, clearTop, coverAlpha, sideScale, onCoverBottom)
         else -> {
             // Whole cover, full width; wide thumbnails stay whole too. Sits right on top of the controls.
             // Placed to never overlap the top buttons or the title: if the full-width cover fits between them it sits
@@ -111,6 +112,7 @@ fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: F
             val coverW = if (fits) w * sideScale else room / ratio
             val coverH = coverW * ratio
             val top = topLimit // right under the header; the stretch fills the space below it
+            androidx.compose.runtime.SideEffect { onCoverBottom(top + coverH) }
             if (!fits) Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = coverAlpha }.blur(60.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.9f)
             if (mode == "mirror") Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = coverAlpha }.blur(14.dp, BlurredEdgeTreatment.Rectangle)) {
                 extend(img, top.toPx(), coverH.toPx(), mirror = true, coverWidth = coverW.toPx())
@@ -252,10 +254,11 @@ private fun DrawScope.extend(img: ImageBitmap, top: Float, h: Float, mirror: Boo
 
 /** The earlier look: cover 14% wider than the screen (6% cropped per side, same as the others) over a zoomed blur of itself. */
 @Composable
-private fun BlurBackdrop(t: Track, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, sideScale: Float) {
+private fun BlurBackdrop(t: Track, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, sideScale: Float, onCoverBottom: (Dp) -> Unit) {
     // on short screens the cover shrinks so it never runs under the title, nor up under the header
     val size = minOf(w * sideScale, (split - clearTop) / 0.95f).coerceAtLeast(120.dp)
     val top = clearTop // right under the header
+    androidx.compose.runtime.SideEffect { onCoverBottom(top + size) }
     val coverMod = Modifier.offset(y = top).fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally, unbounded = true).requiredSize(size)
     Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.6f; scaleY = 1.6f }.blur(70.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.85f)
     Cover(t, coverMod.graphicsLayer { scaleX = 1.15f; scaleY = 1.15f }.blur(40.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.9f)

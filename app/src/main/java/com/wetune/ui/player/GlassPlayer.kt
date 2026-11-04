@@ -62,6 +62,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.displayCutoutPadding
@@ -132,7 +134,10 @@ fun GlassPlayer(ui: PlayerUi) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(lerp(ui.pal.sea, Color.Black, 0.35f))) {
+    // where the cover ends (each style reports it), so the lyrics can sit midway between it and the title
+    var coverBottom by remember { mutableStateOf(0.dp) }
+    var frame by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    BoxWithConstraints(Modifier.fillMaxSize().background(lerp(ui.pal.sea, Color.Black, 0.35f)).onGloballyPositioned { frame = it }) {
         if (maxWidth > maxHeight) return@BoxWithConstraints LandscapePlayer(ui, seekDrag) { seekDrag = it }
         val w = maxWidth
         // Title, controls and corner buttons live in the bottom 40% (never less than they need); the cover owns the rest.
@@ -146,6 +151,7 @@ fun GlassPlayer(ui: PlayerUi) {
         val blockH = maxOf(270.dp, maxHeight * 0.3f)
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val controlsH = blockH + 124.dp + navBottom + 8.dp // 124 dp for the lyrics and the gaps around them, whatever the navigation bar takes
+        val titleTop = maxHeight - blockH - navBottom - 8.dp // top of the controls block
         // with lyrics showing the cover has less room, so Bleeding edge shows it whole (no side crop); without, the usual slight trim
         val sideScale by animateFloatAsState(if (hasLyric && Settings.showInline) 1f else SideScale, tween(450), label = "crop")
         val split = maxHeight - controlsH + lower // where the cover area ends (the controls block itself stays fixed)
@@ -153,7 +159,7 @@ fun GlassPlayer(ui: PlayerUi) {
         // A new song crossfades in; dragging sideways moves only the cover (not the background) to show the skip coming.
         Crossfade(ui.t, Modifier.blur(paneBlur, BlurredEdgeTreatment.Rectangle), animationSpec = tween(650), label = "song") { t ->
             Box(Modifier.fillMaxSize()) {
-                if (Settings.npStyle == "bleed") CoverBackdrop(ui.pal, w, split, clearTop, coverAlpha, t, sideScale) { swipe.value * 0.5f }
+                if (Settings.npStyle == "bleed") CoverBackdrop(ui.pal, w, split, clearTop, coverAlpha, t, sideScale, onCoverBottom = { if (t.id == ui.t.id) coverBottom = it }) { swipe.value * 0.5f }
                 else StyledBackdrop(Settings.npStyle, ui.pal, t, split)
             }
         }
@@ -211,16 +217,19 @@ fun GlassPlayer(ui: PlayerUi) {
                         .pointerInput(Unit) { detectTapGestures(onLongPress = { coverMenu = true }) },
             ) {
                 // classic, strips and disc frame the cover here (Bleeding edge draws it as part of the background)
-                if (Settings.npStyle != "bleed") Crossfade(ui.t, animationSpec = tween(500), label = "cover") { StyledCover(Settings.npStyle, it, { swipe.value * 0.5f }) }
+                if (Settings.npStyle != "bleed") Crossfade(ui.t, animationSpec = tween(500), label = "cover") { StyledCover(Settings.npStyle, it, { swipe.value * 0.5f }, onPlaced = { cc -> frame?.takeIf { f -> f.isAttached && cc.isAttached }?.let { f -> coverBottom = with(density) { f.localPositionOf(cc, androidx.compose.ui.geometry.Offset(0f, cc.size.height.toFloat())).y.toDp() } } }) }
                 Box(Modifier.align(Alignment.Center)) { CoverMenu(ui, coverMenu) { coverMenu = false } }
             }
         }
 
-        // Bottom: title · lyric line · seek · times and quality · transport · volume · lyrics | sleep+output | queue · device.
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(controlsH).navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 8.dp)) {
-            // lyrics (one line or three) centered in the free space between where the blur begins and the title;
-            // they open and close inside this space, so nothing below them moves
-            Box(Modifier.weight(1f).fillMaxWidth().padding(top = 10.dp, bottom = 16.dp), Alignment.Center) { LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() }) } // gaps to the cover above and the title below
+        // Lyrics (one line or three): centered between where the cover ends and the title; they open and close inside this
+        // space, so nothing else moves
+        val lyricsFrom = coverBottom.coerceIn(clearTop, titleTop - 60.dp)
+        Box(Modifier.offset(y = lyricsFrom).fillMaxWidth().height(titleTop - lyricsFrom).padding(start = 24.dp, end = 24.dp, top = 6.dp, bottom = 10.dp), Alignment.Center) {
+            LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() })
+        }
+        // Bottom: title · seek · times and quality · transport · volume · lyrics | sleep+output | queue · device.
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 8.dp)) {
             // the controls: a fixed-height block pinned to the bottom, rows spaced evenly inside it
             Column(Modifier.fillMaxWidth().height(blockH)) {
                 TitleRow(ui) { pipeline = true }
@@ -696,7 +705,7 @@ private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?)
     val dim = Type.body.copy(fontSize = 17.sp, lineHeight = 27.sp, textAlign = TextAlign.Center)
     val main = Type.body.copy(fontSize = 21.sp, lineHeight = 31.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
     AnimatedContent(
-        i, Modifier.fillMaxWidth().padding(top = 6.dp).pressable(scale = 0.98f) { ui.toggle("lyrics") },
+        i, Modifier.fillMaxWidth().clipToBounds().padding(top = 6.dp).pressable(scale = 0.98f) { ui.toggle("lyrics") }, // (clipped: a sliding line never peeks out as a 4th)
         transitionSpec = {
             (androidx.compose.animation.slideInVertically(tween(380)) { it / 3 } + fadeIn(tween(380))) togetherWith
                 (androidx.compose.animation.slideOutVertically(tween(300)) { -it / 3 } + fadeOut(tween(220)))

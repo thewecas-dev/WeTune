@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -77,7 +78,7 @@ fun StyledBackdrop(style: String, pal: ArtPalette, t: Track, split: Dp) {
 
 /** The framed cover for classic (rounded card), strips (rounded card) and disc (circle), as big as the space allows. */
 @Composable
-fun StyledCover(style: String, t: Track, shift: () -> Float, modifier: Modifier = Modifier) {
+fun StyledCover(style: String, t: Track, shift: () -> Float, modifier: Modifier = Modifier, onPlaced: (androidx.compose.ui.layout.LayoutCoordinates) -> Unit = {}) {
     // at the top of the cover area (right under the header); any extra room stays below it
     BoxWithConstraints(modifier.fillMaxSize(), Alignment.TopCenter) {
         val max = minOf(maxWidth - 48.dp, maxHeight - 8.dp)
@@ -85,7 +86,7 @@ fun StyledCover(style: String, t: Track, shift: () -> Float, modifier: Modifier 
         val shape = if (style == "disc") CircleShape else RoundedCornerShape(if (style == "strips") 18.dp else 22.dp)
         Cover(
             t,
-            Modifier.size(size).graphicsLayer { translationX = shift() }
+            Modifier.size(size).onGloballyPositioned(onPlaced).graphicsLayer { translationX = shift() }
                 .shadow(28.dp, shape, ambientColor = Color.Black.copy(alpha = 0.5f), spotColor = Color.Black.copy(alpha = 0.6f)).clip(shape),
         )
     }
