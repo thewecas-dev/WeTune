@@ -72,4 +72,5 @@ object Ic {
     val Volume by lazy { line("volume", "M4 9.5h3.5L12 5.5v13l-4.5-4H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11") }
     val Moon by lazy { line("moon", "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z") }
     val Delete by lazy { icon("delete", "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z") }
+    val Plus by lazy { icon("plus", "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z") }
 }

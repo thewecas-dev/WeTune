@@ -553,7 +553,8 @@ private fun QualityTag(onClick: () -> Unit) {
         else -> AudioInfo.label
     } ?: return
     // a small badge (HQ at 256 kbps and up, SQ below) in front of the text, like the reference
-    val badge = AudioInfo.kbps?.let { if (it >= 256) "HQ" else "SQ" }
+    val badge = AudioInfo.hifiNow?.let { (_, bits, rate) -> if (bits > 16 || rate > 48_000) "HI-RES" else "LOSSLESS" }
+        ?: AudioInfo.kbps?.let { if (it >= 256) "HQ" else "SQ" }
     AnimatedContent(text, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "quality") { s ->
         Row(
             Modifier.clip(CircleShape).pressable(scale = 0.96f, onClick = onClick).padding(horizontal = 8.dp, vertical = 2.dp)

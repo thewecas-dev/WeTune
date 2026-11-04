@@ -38,7 +38,7 @@ private val pages = listOf(
     Page("appearance", "Appearance", "Theme, accent color, rotation", Ic.Palette),
     Page("playback", "Playback", "Maximum quality, volume, autoplay", Ic.Tune),
     Page("audio", "Audio add-ons", "Equalizer, bass, reverb, 8D, speed, fades", Ic.Volume),
-    Page("sources", "Sources", "Subsonic / Navidrome server", Ic.Server),
+    Page("sources", "Sources", "Lossless add-ons, JioSaavn, Subsonic", Ic.Server),
     Page("backup", "Backup", "Save or restore your on-device library", Ic.Backup),
     Page("about", "About", "Version and credits", Ic.Info),
 )
@@ -162,7 +162,7 @@ private fun AppearancePage() {
 
 @Composable
 private fun PlaybackPage() {
-    val levels = listOf("data" to "Data saver", "high" to "High", "max" to "Max · 320")
+    val levels = listOf("data" to "Data", "high" to "High", "max" to "320", "lossless" to "Lossless")
     Group("Maximum quality") {
         Column(Modifier.padding(12.dp)) {
             Txt("On Wi-Fi", Modifier.padding(start = 4.dp, bottom = 8.dp), style = Type.label)
@@ -171,7 +171,8 @@ private fun PlaybackPage() {
             Segmented(levels, Settings.maxMobile, { Settings.maxMobile = it })
             Txt(
                 "Songs start right away and keep stepping up to this ceiling: YouTube's best stream (about 160 kbps Opus) first, " +
-                    "then JioSaavn's 320 kbps file when the exact same recording is found there. A better connection " +
+                    "then JioSaavn's 320 kbps file, then lossless FLAC from your add-ons (Settings → Sources), each only when the " +
+                    "exact same recording is found. Lossless uses about 1–3 MB per minute. A better connection " +
                     "(say, Wi-Fi after mobile data) upgrades the playing song. Data saver uses about 70 kbps. " +
                     "Likes, history and recommendations always go to YouTube Music.",
                 Modifier.padding(start = 4.dp, top = 12.dp), style = Type.caption, color = WT.c.muted,
@@ -187,6 +188,7 @@ private fun PlaybackPage() {
 
 @Composable
 private fun SourcesPage() {
+    SourcesList()
     var url by remember { mutableStateOf(Settings.subsonicUrl) }
     var user by remember { mutableStateOf(Settings.subsonicUser) }
     var pass by remember { mutableStateOf(Settings.subsonicPass) }
@@ -201,11 +203,7 @@ private fun SourcesPage() {
             }, Modifier.fillMaxWidth())
         }
     }
-    Group("Built in") {
-        SettingRow("YouTube Music", "Search, home feed, radio")
-        Divider(Modifier.padding(start = 16.dp))
-        SettingRow("JioSaavn", "Up to 320 kbps")
-        Divider(Modifier.padding(start = 16.dp))
+    Group("Also") {
         SettingRow("This device", "Songs stored on your phone")
     }
 }

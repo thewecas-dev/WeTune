@@ -36,3 +36,21 @@ class SourceMatchTest {
         assertFalse(SourceMatch.same("Chaleya", "Arijit Singh", 0, saavn("Kesariya", "Arijit Singh", 0)))
     }
 }
+
+class CacheKeyTest {
+    @Test fun youtubeByVideoAndFormat() {
+        org.junit.Assert.assertEquals("gv:abc:251", streamCacheKey("https://rr1---sn-x.googlevideo.com/videoplayback?expire=1&id=abc&itag=251&sig=zz"))
+    }
+
+    @Test fun qobuzFilesSharingAPathStayApart() {
+        val a = streamCacheKey("https://streaming-qobuz-std.akamaized.net/file?uid=1&eid=239301166&fmt=6&profile=raw&etsp=1793813582&hmac=x1")
+        val b = streamCacheKey("https://streaming-qobuz-std.akamaized.net/file?uid=1&eid=460477109&fmt=6&profile=raw&etsp=1793813999&hmac=y2")
+        val a2 = streamCacheKey("https://streaming-qobuz-std.akamaized.net/file?uid=1&eid=239301166&fmt=6&profile=raw&etsp=1799999999&hmac=other")
+        org.junit.Assert.assertNotEquals(a, b)
+        org.junit.Assert.assertEquals("same file, new signature", a, a2)
+    }
+
+    @Test fun plainPathsUnchanged() {
+        org.junit.Assert.assertEquals("https://aac.saavncdn.com/123/abc_320.mp4", streamCacheKey("https://aac.saavncdn.com/123/abc_320.mp4"))
+    }
+}

@@ -31,14 +31,7 @@ object AudioInfo {
      * Cache key for a stream address: YouTube by video + format (its URLs change every time, the content doesn't),
      * everything else by host + path without the query (expiring tokens).
      */
-    fun cacheKey(url: String): String {
-        val u = Uri.parse(url)
-        if (u.host?.endsWith("googlevideo.com") == true) {
-            val id = u.getQueryParameter("id"); val itag = u.getQueryParameter("itag")
-            if (id != null && itag != null) return "gv:$id:$itag"
-        }
-        return "${u.scheme}://${u.host}${u.path}"
-    }
+    fun cacheKey(url: String): String = streamCacheKey(url)
 
     // stream, as the decoder sees it
     var mime by mutableStateOf<String?>(null)
@@ -68,6 +61,14 @@ object AudioInfo {
         // never show "Finding 320 kbps…" forever: give up on the label after 15 s
         if (state == "searching") main.postDelayed({ if (upgrades[id] == "searching") upgrades[id] = "none" }, 15_000)
     }
+
+    /** Lossless copy details per song (codec, bit depth, sample rate) when it plays from an add-on. */
+    private val hifi = mutableStateMapOf<String, Triple<String, Int, Int>>()
+    fun lossless(id: String, codec: String?, bits: Int, rate: Int) = main.post { if (codec == null) hifi.remove(id) else hifi[id] = Triple(codec, bits, rate) }
+
+    /** The playing song's lossless details, only once the decoder confirms it really is playing the lossless file. */
+    val hifiNow: Triple<String, Int, Int>?
+        get() = Playback.current?.id?.let { hifi[it] }?.takeIf { codecName in setOf("FLAC", "ALAC", "PCM") }
 
     /** For a YouTube song played from JioSaavn: the JioSaavn song it was matched to (title · artist · album). */
     private val matches = mutableStateMapOf<String, String>()
@@ -135,7 +136,8 @@ object AudioInfo {
 
     /** Tiny quality line for the player, e.g. "OPUS · 160 kbps". Null until something is known. */
     val label: String?
-        get() = listOfNotNull(codecName, kbps?.let { "$it kbps" })
+        get() = hifiNow?.let { (codec, bits, rate) -> listOfNotNull(codec, bits.takeIf { it > 0 }?.let { "$it-bit" }, rate.takeIf { it > 0 }?.let { "${formatKhz(it)} kHz" }).joinToString(" · ") }
+            ?: listOfNotNull(codecName, kbps?.let { "$it kbps" })
             .takeIf { it.isNotEmpty() }?.joinToString(" · ")
 
     fun formatKhz(hz: Int) = if (hz % 1000 == 0) "${hz / 1000}" else "%.1f".format(hz / 1000f)
@@ -160,4 +162,26 @@ object UpgradeLog {
             file.writeText(lines.joinToString("\n"))
         }
     }
+}
+
+/** Query parameters that only sign or time-limit a link; they change every time and never tell files apart. */
+private val volatileParams = setOf(
+    "hmac", "etsp", "expires", "expire", "exp", "signature", "sig", "token", "key-pair-id", "policy", "x-amz-signature",
+    "x-amz-date", "x-amz-credential", "x-amz-security-token", "x-amz-expires", "x-amz-signedheaders", "x-amz-algorithm", "auth", "hdnts", "hdnea", "ts",
+)
+
+/**
+ * Cache key for a stream address. YouTube: video + format (its URLs change every time, the content doesn't).
+ * Everything else: host + path + the query parameters that pick the file (e.g. Qobuz's ?eid=…&fmt=…, where every
+ * song shares the same path), without the signature and expiry ones.
+ */
+fun streamCacheKey(url: String): String {
+    val u = runCatching { java.net.URI(url) }.getOrNull() ?: return url
+    val query = u.rawQuery.orEmpty().split('&').filter { it.isNotBlank() }.map { it.substringBefore('=') to it.substringAfter('=', "") }
+    if (u.host?.endsWith("googlevideo.com") == true) {
+        val id = query.firstOrNull { it.first == "id" }?.second; val itag = query.firstOrNull { it.first == "itag" }?.second
+        if (id != null && itag != null) return "gv:$id:$itag"
+    }
+    val keep = query.filter { it.first.lowercase() !in volatileParams }.sortedBy { it.first }.joinToString("&") { "${it.first}=${it.second}" }
+    return "${u.scheme}://${u.host}${u.rawPath}" + if (keep.isEmpty()) "" else "?$keep"
 }

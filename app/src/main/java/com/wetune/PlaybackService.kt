@@ -91,6 +91,7 @@ class PlaybackService : MediaSessionService() {
         player.addListener(listener)
         player.addAnalyticsListener(audioWatcher)
         Resolver.onUpgrade = { ref -> scope.launch { upgradeToMatch("yt:$ref") } }
+        com.wetune.sources.Addons.warmUp() // free add-on servers sleep; wake them before the first song needs one
         session = MediaSession.Builder(this, player)
             .setCallback(callback)
             .setSessionActivity(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))

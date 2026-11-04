@@ -26,10 +26,12 @@ object Settings {
     var npFill by Str("np_fill", "stretch") // how the player fills around the cover: stretch | mirror | blur
     var wifiHigh by Bool("wifi_high", true)
     var mobileHigh by Bool("mobile_high", false)
-    // the best quality to reach per network: data (≈70 kbps) | high (best YouTube, ≈160 kbps) | max (JioSaavn 320 kbps when found).
+    // the best quality to reach per network: data (≈70 kbps) | high (best YouTube, ≈160 kbps) | max (JioSaavn 320 kbps when found)
+    // | lossless (FLAC from the user's add-ons when found).
     // Defaults carry over the older "Play songs from" + high-quality switches.
     var maxWifi by Str("max_wifi", if (prefs.getString("play_from", "yt") == "saavn") "max" else if (prefs.getBoolean("wifi_high", true)) "high" else "data")
     var maxMobile by Str("max_mobile", if (prefs.getBoolean("mobile_high", false)) (if (prefs.getString("play_from", "yt") == "saavn") "max" else "high") else "data")
+    var saavnOn by Bool("saavn_on", true) // JioSaavn 320 kbps as a step on the quality ladder (Settings → Sources)
     var normalize by Bool("normalize", true)
     var autoplay by Bool("autoplay", true)
     var autoRotate by Bool("auto_rotate", false)
