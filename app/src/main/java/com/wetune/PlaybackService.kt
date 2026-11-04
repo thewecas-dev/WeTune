@@ -170,6 +170,8 @@ class PlaybackService : MediaSessionService() {
             updateLikeButton()
             prefetchNext()
             recordStart(t)
+            // a few seconds in (after the song has settled), look up its other versions so the Audio sheet opens with them ready
+            if (t.source == "yt") scope.launch { delay(3_000); if (player.currentMediaItem?.mediaId == t.id) Resolver.prefetchVersions(t) }
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {

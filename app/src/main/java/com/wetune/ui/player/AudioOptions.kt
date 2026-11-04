@@ -39,22 +39,29 @@ fun AudioOptionsSheet(t: Track, onPipeline: () -> Unit, onDismiss: () -> Unit) {
         Txt("OTHER VERSIONS", Modifier.padding(top = 20.dp, bottom = 4.dp), style = Type.overline, color = c.muted)
         Txt("Pick the right one if the song playing isn't the recording you wanted. WeTune remembers it for this song.", style = Type.caption, color = c.muted)
         VersionRow("Automatic", "Best match from your sources, in your order", null, pinned == null) { Playback.useVersion(t, null); onDismiss() }
-        Load("versions:" + t.id, { Resolver.versions(t) }) { list, _ ->
-            var last: String? = null
-            list.forEach { v ->
-                if (v.source != last) {
-                    Txt(v.source.uppercase(), Modifier.padding(top = 14.dp, bottom = 2.dp), style = Type.overline, color = c.accent)
-                    last = v.source
-                }
-                val len = if (v.durationMs > 0) " · %d:%02d".format(v.durationMs / 60_000, v.durationMs / 1000 % 60) else ""
-                VersionRow(v.title, listOf(v.detail, v.quality).filter(String::isNotBlank).joinToString(" · ") + len, v.choice == playing, v.choice == pinned) {
-                    Playback.useVersion(t, v.choice); onDismiss()
-                }
-                Divider(Modifier.padding(start = 4.dp))
-            }
-            if (list.size <= 1) Txt("No other versions found on your sources.", Modifier.padding(top = 8.dp), style = Type.caption, color = c.muted)
-        }
+        // fetched in the background while the song plays, so usually already here; otherwise looked up now
+        val ready = Resolver.cachedVersions(t)
+        if (ready != null) VersionList(t, ready, playing, pinned, onDismiss)
+        else Load("versions:" + t.id, { Resolver.versions(t) }) { list, _ -> VersionList(t, list, playing, pinned, onDismiss) }
     }
+}
+
+@Composable
+private fun VersionList(t: Track, list: List<Resolver.Version>, playing: String?, pinned: String?, onDismiss: () -> Unit) {
+    val c = WT.c
+    var last: String? = null
+    list.forEach { v ->
+        if (v.source != last) {
+            Txt(v.source.uppercase(), Modifier.padding(top = 14.dp, bottom = 2.dp), style = Type.overline, color = c.accent)
+            last = v.source
+        }
+        val len = if (v.durationMs > 0) " · %d:%02d".format(v.durationMs / 60_000, v.durationMs / 1000 % 60) else ""
+        VersionRow(v.title, listOf(v.detail, v.quality).filter(String::isNotBlank).joinToString(" · ") + len, v.choice == playing, v.choice == pinned) {
+            Playback.useVersion(t, v.choice); onDismiss()
+        }
+        Divider(Modifier.padding(start = 4.dp))
+    }
+    if (list.size <= 1) Txt("No other versions found on your sources.", Modifier.padding(top = 8.dp), style = Type.caption, color = c.muted)
 }
 
 private fun nowSource(t: Track, playing: String?): String = when {

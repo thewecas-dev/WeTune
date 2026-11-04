@@ -179,8 +179,30 @@ object Resolver {
     /** One version of a song the user can switch to. */
     data class Version(val choice: String, val source: String, val title: String, val detail: String, val quality: String, val durationMs: Long)
 
-    /** Blocking. Every version WeTune can find for a YouTube song: the original, JioSaavn's and each add-on's results. */
-    fun versions(t: com.wetune.sources.Track): List<Version> {
+    // versions already looked up, per song (and per source setup, so changing the order or add-ons looks again)
+    private val versionCache = ConcurrentHashMap<String, Future<List<Version>>>()
+    private fun versionKey(t: com.wetune.sources.Track) = t.id + "|" + order().joinToString(",") + "|" + Settings.saavnOn
+
+    /** The versions of [t] if they've already been fetched (instant), else null. */
+    fun cachedVersions(t: com.wetune.sources.Track): List<Version>? =
+        versionCache[versionKey(t)]?.takeIf { it.isDone }?.let { runCatching { it.get() }.getOrNull() }
+
+    /** Starts looking up [t]'s versions in the background (no audio), so Audio options opens with them ready. */
+    fun prefetchVersions(t: com.wetune.sources.Track) { if (t.source == "yt") versionFuture(t) }
+
+    private fun versionFuture(t: com.wetune.sources.Track): Future<List<Version>> {
+        if (versionCache.size > 150) versionCache.clear() // shortcut: drop-all instead of LRU; fine at this size
+        val key = versionKey(t)
+        // a lookup that found nothing (offline, servers asleep) isn't kept, so the next open tries again
+        return versionCache.computeIfAbsent(key) { worker.submit<List<Version>> { findVersions(t).also { if (it.size <= 1) versionCache.remove(key) } } }
+    }
+
+    /** Blocking. Every version of a YouTube song (kept for the session): the original, JioSaavn's and each add-on's results. */
+    fun versions(t: com.wetune.sources.Track): List<Version> = runCatching { versionFuture(t).get() }.getOrElse {
+        versionCache.remove(versionKey(t)); throw it
+    }
+
+    private fun findVersions(t: com.wetune.sources.Track): List<Version> {
         val q = SourceMatch.queries(t.title, t.artist).first()
         val saavn = if (Settings.saavnOn) worker.submit<List<Version>> {
             runCatching { JioSaavn.search(q).take(5) }.getOrDefault(emptyList()).map {
