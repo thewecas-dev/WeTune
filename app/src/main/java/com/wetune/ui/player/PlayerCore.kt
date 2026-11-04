@@ -218,9 +218,12 @@ fun LyricsView(t: Track, pos: Long, modifier: Modifier = Modifier.fillMaxSize())
                         .graphicsLayer { scaleX = grow; scaleY = grow; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
                         .padding(vertical = 10.dp),
                 ) {
-                    Txt(
+                    val lineStyle = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp)
+                    // the line being sung fills in letter by letter (word-timed lyrics, or an even sweep when estimating)
+                    if (synced && i == current && Settings.lyricsWords && line.text.isNotBlank()) SungLine(line, lines.getOrNull(i + 1)?.ms ?: Long.MAX_VALUE, pos + Lyrics.offset(t.id), lineStyle, c)
+                    else Txt(
                         line.text.ifBlank { "♪" },
-                        style = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp),
+                        style = lineStyle,
                         // lines further from the current one fade more (a per-line blur was too heavy to scroll smoothly)
                         color = c.copy(alpha = if (active) 1f else (0.42f - 0.06f * kotlin.math.abs(i - current).coerceAtMost(4)).coerceAtLeast(0.18f)),
                     )
@@ -357,14 +360,8 @@ private fun LyricsSourceButton(t: Track) {
     val chosen = Lyrics.choice[t.id] ?: 0
     Box {
         ToolPill(Ic.Versions, "Choose lyrics version", open) { open = true }
-        Menu(open, { open = false }, title = "Lyrics from LRCLIB") {
-            versions.forEachIndexed { i, v ->
-                MenuItem(
-                    "${if (v.synced) "Synced" else "Plain"} · ${v.title} · ${v.artist}",
-                    { Lyrics.choice[t.id] = i; open = false },
-                    if (i == chosen) Ic.Check else null,
-                )
-            }
+        Menu(open, { open = false }, title = "Lyrics versions") {
+            versions.forEachIndexed { i, v -> LyricsVersionRow(v, i == chosen) { Lyrics.choice[t.id] = i; open = false } }
         }
     }
 }
@@ -382,5 +379,37 @@ private fun LyricsOffsetButton(t: Track) {
             MenuItem("Later by 0.5 s", { Lyrics.setOffset(t.id, off - 500) }, Ic.ArrowDown)
             if (off != 0L) MenuItem("Reset", { Lyrics.setOffset(t.id, 0); open = false }, Ic.Refresh)
         }
+    }
+}
+
+/** The line being sung in the lyrics panel, lit letter by letter as the words are sung. */
+@Composable
+private fun SungLine(line: Lyrics.Line, nextMs: Long, pos: Long, style: TextStyle, c: Color) {
+    val words = remember(line, Settings.lyricsEstimate) { wordsOf(line, nextMs) }
+        ?: return Txt(line.text, style = style, color = c)
+    KaraokeText(words, smoothPosition(pos + 150), style.copy(color = c), lit = c, dim = c.copy(alpha = 0.32f))
+}
+
+/** One lyrics version in the menu: the source first, then how it's timed (word by word, by line, or not), then the song. */
+@Composable
+private fun LyricsVersionRow(v: Lyrics.Version, chosen: Boolean, onClick: () -> Unit) {
+    val c = WT.c
+    val (icon, timing) = when {
+        v.words -> Ic.Karaoke to "Word by word"
+        v.synced -> Ic.Clock to "Synced by line"
+        else -> Ic.Lyrics to "Not synced"
+    }
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).pressable(scale = 0.98f, onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Txt(v.source, style = Type.bodyStrong, color = c.text, maxLines = 1)
+                Icon(icon, timing, Modifier.padding(start = 8.dp), size = 16.dp, tint = if (v.synced) c.accent else c.muted)
+            }
+            Txt("$timing · ${v.title} · ${v.artist}", style = Type.caption, color = c.muted, maxLines = 1)
+        }
+        if (chosen) Icon(Ic.Check, "Chosen", Modifier.padding(start = 8.dp), size = 18.dp, tint = c.accent)
     }
 }

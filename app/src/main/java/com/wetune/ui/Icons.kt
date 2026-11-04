@@ -65,6 +65,7 @@ object Ic {
     val ArrowDown by lazy { line("arrow_down", "M12 5v14M6 13l6 6 6-6") }
     val Clock by lazy { line("clock", "M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16zM12 8v4l3 2") }
     val Versions by lazy { line("versions", "M7 4.5h10M5 8h14M4.5 11.5h15v8h-15z") }
+    val Karaoke by lazy { line("karaoke", "M8 14l4-9 4 9M9.5 11h5M5 18.5h7M14 18.5h5") } // a letter over a part-filled bar: word-by-word lyrics
     val Latin by lazy { line("latin", "M4 18l4.5-12L13 18M5.7 14h5.6M15 12.5a2.8 2.8 0 1 1 0 5.5h-.2M17.8 12v6") }
     val Collapse by lazy { line("collapse", "M8 9l4-4 4 4M8 15l4 4 4-4") }
     val Radio by lazy { line("radio", "M12 10.5a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3zM8.5 15.5a5 5 0 0 1 0-7M15.5 8.5a5 5 0 0 1 0 7M5.6 18.4a9 9 0 0 1 0-12.8M18.4 5.6a9 9 0 0 1 0 12.8") }

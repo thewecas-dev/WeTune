@@ -399,7 +399,11 @@ private fun LyricLineContent(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: 
             if (line == "") return@Row Spacer(Modifier.height(22.dp))
             // optional: the inline line in Latin letters for Tamil, Hindi, Telugu… (the full lyrics panel is unchanged)
         val shownLine = line?.let { if (Settings.romanInline) romanize(it) ?: it else it }
-        if (shownLine != null) Txt(shownLine, Modifier.weight(1f, fill = false), style = Type.body.copy(fontSize = 15.sp, lineHeight = 21.sp), color = Color.White.copy(alpha = if (previewMs != null) 1f else 0.9f), weight = FontWeight.SemiBold, maxLines = 2)
+        val sung = lines.getOrNull(i)?.takeIf { it.text.trim() == line?.trim() } // this line's timing (not for one that's leaving)
+        val inlineStyle = Type.body.copy(fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold)
+        if (shownLine != null && sung != null && Settings.inlineWords && previewMs == null)
+            InlineSung(sung, lines.getOrNull(i + 1)?.ms ?: Long.MAX_VALUE, shownLine, ui.pos + Lyrics.offset(ui.t.id), inlineStyle, Modifier.weight(1f, fill = false))
+        else if (shownLine != null) Txt(shownLine, Modifier.weight(1f, fill = false), style = inlineStyle, color = Color.White.copy(alpha = if (previewMs != null) 1f else 0.9f), maxLines = 2)
             else MusicBreak()
             Icon(Ic.Chevron, null, Modifier.padding(start = 6.dp), size = 14.dp, tint = Color.White.copy(alpha = 0.7f))
         }
@@ -634,4 +638,12 @@ private fun Modifier.shared(key: String, text: Boolean = false): Modifier {
             resizeMode = if (text) SharedTransitionScope.ResizeMode.ScaleToBounds() else SharedTransitionScope.ResizeMode.RemeasureToBounds,
         )
     }
+}
+
+/** The one-line lyric above the seek bar, filling in letter by letter (romanized text gets an even sweep). */
+@Composable
+private fun InlineSung(line: Lyrics.Line, nextMs: Long, shown: String, pos: Long, style: androidx.compose.ui.text.TextStyle, modifier: Modifier) {
+    val words = remember(line, shown, Settings.lyricsEstimate) { wordsOf(line, nextMs, shown) }
+        ?: return Txt(shown, modifier, style = style, color = Color.White.copy(alpha = 0.9f), maxLines = 2)
+    KaraokeText(words, smoothPosition(pos + 150), style, lit = Color.White, dim = Color.White.copy(alpha = 0.45f), modifier = modifier, maxLines = 2)
 }
