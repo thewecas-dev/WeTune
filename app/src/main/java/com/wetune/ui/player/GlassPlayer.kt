@@ -62,7 +62,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.displayCutout
@@ -125,7 +124,8 @@ fun GlassPlayer(ui: PlayerUi) {
     // where the cover may start: under the status bar or camera cutout, the grabber and "Playing from", plus a gap
     var headerH by remember { mutableStateOf(64.dp) }
     val cutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
-    val clearTop = maxOf(statusTop, cutTop) + headerH // the cover starts right under the header
+    val headerTop = (maxOf(statusTop, cutTop) - 8.dp).coerceAtLeast(2.dp) // the header tucks a little into the cutout band
+    val clearTop = headerTop + headerH // the cover starts right under the header
     var seekDrag by remember { mutableStateOf<Float?>(null) } // while dragging the seek bar: where you'd land
     var coverMenu by remember { mutableStateOf(false) }
     var pipeline by remember { mutableStateOf(false) }
@@ -178,16 +178,16 @@ fun GlassPlayer(ui: PlayerUi) {
         if (open) ImmersivePane(ui, onQuality = { audioOptions = true }) { seekDrag = it } else Box(Modifier.fillMaxSize()) {
 
         // Top 60%: the corner buttons. On the cover: swipe to skip, long-press for a menu.
-        Column(Modifier.fillMaxWidth().height(split).statusBarsPadding().displayCutoutPadding().padding(start = 16.dp, end = 16.dp)) {
+        Column(Modifier.fillMaxWidth().height(split).padding(start = 16.dp, end = 16.dp, top = headerTop)) {
           // the header (grabber + Playing from) is measured so the cover never starts underneath it
           Column(Modifier.onSizeChanged { headerH = with(density) { it.height.toDp() } }) {
             // grabber: tap to close, or drag down (the whole player follows a downward drag)
             Box(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).pressable(scale = 0.95f, onClick = ui.close)
-                    .semantics { contentDescription = "Close player" }.padding(top = 0.dp, bottom = 10.dp),
+                    .semantics { contentDescription = "Close player" }.padding(top = 0.dp, bottom = 8.dp),
                 Alignment.Center,
             ) { Box(Modifier.size(40.dp, 5.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.55f))) }
-            Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 // (no close button: swipe down or Back closes the player)
                 // what the queue was started from: "PLAYING FROM PLAYLIST" over "Tamil Hits 2025"
                 Column(Modifier.weight(1f).heightIn(min = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -705,7 +705,7 @@ private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?)
     val dim = Type.body.copy(fontSize = 17.sp, lineHeight = 27.sp, textAlign = TextAlign.Center)
     val main = Type.body.copy(fontSize = 21.sp, lineHeight = 31.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
     AnimatedContent(
-        i, Modifier.fillMaxWidth().clipToBounds().padding(top = 6.dp).pressable(scale = 0.98f) { ui.toggle("lyrics") }, // (clipped: a sliding line never peeks out as a 4th)
+        i, Modifier.fillMaxWidth().padding(top = 6.dp).pressable(scale = 0.98f) { ui.toggle("lyrics") },
         transitionSpec = {
             (androidx.compose.animation.slideInVertically(tween(380)) { it / 3 } + fadeIn(tween(380))) togetherWith
                 (androidx.compose.animation.slideOutVertically(tween(300)) { -it / 3 } + fadeOut(tween(220)))
