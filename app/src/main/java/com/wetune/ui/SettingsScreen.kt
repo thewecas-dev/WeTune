@@ -143,14 +143,7 @@ private fun AppearancePage() {
         Divider(Modifier.padding(start = 16.dp))
         ToggleRow("Depth effect", "Tilt your phone: the background shifts behind the cover and the edges sink into shadow, as if you were looking into it.", Settings.npDepth) { Settings.npDepth = it }
         if (Settings.npDepth) {
-            Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp)) {
-                Segmented(listOf("parallax" to "Parallax", "box" to "3D box"), Settings.depthStyle, { Settings.depthStyle = it })
-                Txt(
-                    if (Settings.depthStyle == "box") "A box set into the screen: walls in the cover's colors angle back to the background, with corners and shadows. Tilt to look inside."
-                    else "The background shifts behind the cover as you tilt, and the edges sink into shadow.",
-                    Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
-                )
-            }
+            ToggleRow("Invert direction", "The background and cover move the other way when you tilt", Settings.depthInvert) { Settings.depthInvert = it }
             SettingSlider("Intensity", "${Settings.depthIntensity}", Settings.depthIntensity / 100f) { Settings.depthIntensity = Math.round(it * 20) * 5 }
         }
         Divider(Modifier.padding(start = 16.dp))
