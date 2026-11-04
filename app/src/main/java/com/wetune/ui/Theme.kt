@@ -62,8 +62,13 @@ object Tokens {
     val RadiusLarge = 18.dp
 }
 
-/** For lyrics on Now Playing: a slim display serif that sets them apart from the Geist interface text. */
-val LyricFont = FontFamily(Font(R.font.instrument_serif))
+/** For lyrics on Now Playing: Space Grotesk (variable), a sans with a little character that sets them apart from Geist. */
+@OptIn(ExperimentalTextApi::class)
+val LyricFont = FontFamily(
+    listOf(FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold).map { w ->
+        Font(R.font.space_grotesk, w, variationSettings = FontVariation.Settings(FontVariation.weight(w.weight)))
+    }
+)
 
 /** Geist, bundled as one variable font; each weight is a variation of the same file. */
 @OptIn(ExperimentalTextApi::class)
