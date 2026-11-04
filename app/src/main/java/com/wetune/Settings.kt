@@ -29,6 +29,8 @@ object Settings {
     var npHideStatus by Bool("np_hide_status", true) // hide the status bar (clock, notifications) while Now Playing is open
     var npHeader by Bool("np_header", true) // the grabber and "Playing from" at the top of Now Playing
     var npDepth by Bool("np_depth", false) // tilt the phone and the background shifts behind the cover, edges darkened
+    var depthStyle by Str("depth_style", "parallax") // parallax (layers shift) | box (a 3D box set into the screen)
+    var depthIntensity by IntPref("depth_intensity", 50) // 0…100; 50 is the original strength
     var npFill by Str("np_fill", "stretch") // how the player fills around the cover: stretch | mirror | blur
     var showInline by Bool("show_inline", true) // lyrics on the Now Playing screen (above or below the title)
     var inlineStyle by Str("inline_style", "line") // lyric above the seek bar: line (one line) | stack (previous · current · next)

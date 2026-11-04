@@ -138,6 +138,8 @@ fun GlassPlayer(ui: PlayerUi) {
     // depth effect: tilting the phone moves the background against the tilt and the cover with it (read in graphicsLayer only)
     val depthOn = Settings.npDepth
     val tilt = rememberTilt(depthOn)
+    val depthK = 0.25f + Settings.depthIntensity / 100f * 1.5f // intensity 0…100 → 0.25…1.75 (50 = the original 1.0)
+    val boxOn = depthOn && Settings.depthStyle == "box"
     // where the cover ends (each style reports it), so the lyrics can sit midway between it and the title
     var coverBottom by remember { mutableStateOf(0.dp) }
     var frame by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
@@ -173,7 +175,8 @@ fun GlassPlayer(ui: PlayerUi) {
                 if (depthOn) {
                     // zoomed a little so its edges never show while it shifts
                     scaleX = 1.08f; scaleY = 1.08f
-                    translationX = -tilt.value.x * 14.dp.toPx(); translationY = tilt.value.y * 14.dp.toPx()
+                    // (the 3D box's back wall moves a little more sideways, as its walls do)
+                    translationX = -tilt.value.x * (if (boxOn) 16 else 14).dp.toPx() * depthK; translationY = tilt.value.y * (if (boxOn) 12 else 14).dp.toPx() * depthK
                 }
             }.blur(paneBlur, BlurredEdgeTreatment.Rectangle),
             animationSpec = tween(650), label = "song",
@@ -184,9 +187,11 @@ fun GlassPlayer(ui: PlayerUi) {
             }
         }
         // depth effect: the edges sink into shadow so the background reads as far behind the glass
-        if (depthOn) androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-            drawRect(Brush.radialGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.55f), center = center, radius = size.maxDimension * 0.62f))
+        if (depthOn && !boxOn) androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            drawRect(Brush.radialGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = (0.55f * depthK).coerceAtMost(0.8f)), center = center, radius = size.maxDimension * 0.62f))
         }
+        // depth style "3D box": walls, corners and shadows set into the screen around the background
+        if (boxOn) DepthBox(ui.pal.band, tilt, depthK, titleTop - 16.dp)
         if (paneDim > 0f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = paneDim)))
 
         // Lyrics or queue open: immersive. Only the panel, plus a slim bar at the bottom (title, play/pause, close) and the seek bar.
@@ -254,7 +259,9 @@ fun GlassPlayer(ui: PlayerUi) {
             Crossfade(
                 ui.t,
                 Modifier.offset(y = top).fillMaxWidth().graphicsLayer {
-                    if (depthOn) { translationX = tilt.value.x * 7.dp.toPx(); translationY = -tilt.value.y * 7.dp.toPx() } // the cover floats toward you
+                    // parallax: the cover floats toward you; 3D box: it hangs on the back wall and moves with it
+                    if (boxOn) { translationX = -tilt.value.x * 16.dp.toPx() * depthK; translationY = tilt.value.y * 12.dp.toPx() * depthK }
+                    else if (depthOn) { translationX = tilt.value.x * 7.dp.toPx() * depthK; translationY = -tilt.value.y * 7.dp.toPx() * depthK }
                 },
                 animationSpec = tween(500), label = "cover",
             ) { StyledCover(Settings.npStyle, it, { swipe.value * 0.5f }, size) }

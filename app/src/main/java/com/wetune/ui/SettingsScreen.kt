@@ -142,6 +142,17 @@ private fun AppearancePage() {
         ToggleRow("Grabber and \"Playing from\"", "The bar at the top and what the queue was started from. Off: the cover moves up; swipe down or Back still closes the player.", Settings.npHeader) { Settings.npHeader = it }
         Divider(Modifier.padding(start = 16.dp))
         ToggleRow("Depth effect", "Tilt your phone: the background shifts behind the cover and the edges sink into shadow, as if you were looking into it.", Settings.npDepth) { Settings.npDepth = it }
+        if (Settings.npDepth) {
+            Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp)) {
+                Segmented(listOf("parallax" to "Parallax", "box" to "3D box"), Settings.depthStyle, { Settings.depthStyle = it })
+                Txt(
+                    if (Settings.depthStyle == "box") "A box set into the screen: walls in the cover's colors angle back to the background, with corners and shadows. Tilt to look inside."
+                    else "The background shifts behind the cover as you tilt, and the edges sink into shadow.",
+                    Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
+                )
+            }
+            SettingSlider("Intensity", "${Settings.depthIntensity}", Settings.depthIntensity / 100f) { Settings.depthIntensity = Math.round(it * 20) * 5 }
+        }
         Divider(Modifier.padding(start = 16.dp))
         ToggleRow("Volume slider", "Show the phone's volume under the play controls", Settings.showVolume) { Settings.showVolume = it }
         Divider(Modifier.padding(start = 16.dp))
