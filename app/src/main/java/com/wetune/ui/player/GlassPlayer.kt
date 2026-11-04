@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.displayCutout
@@ -134,6 +135,9 @@ fun GlassPlayer(ui: PlayerUi) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
 
+    // depth effect: tilting the phone moves the background against the tilt and the cover with it (read in graphicsLayer only)
+    val depthOn = Settings.npDepth
+    val tilt = rememberTilt(depthOn)
     // where the cover ends (each style reports it), so the lyrics can sit midway between it and the title
     var coverBottom by remember { mutableStateOf(0.dp) }
     var frame by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
@@ -163,11 +167,25 @@ fun GlassPlayer(ui: PlayerUi) {
         val split = maxHeight - controlsH + lower // where the cover area ends (the controls block itself stays fixed)
 
         // A new song crossfades in; dragging sideways moves only the cover (not the background) to show the skip coming.
-        Crossfade(ui.t, Modifier.blur(paneBlur, BlurredEdgeTreatment.Rectangle), animationSpec = tween(650), label = "song") { t ->
+        Crossfade(
+            ui.t,
+            Modifier.graphicsLayer {
+                if (depthOn) {
+                    // zoomed a little so its edges never show while it shifts
+                    scaleX = 1.08f; scaleY = 1.08f
+                    translationX = -tilt.value.x * 14.dp.toPx(); translationY = tilt.value.y * 14.dp.toPx()
+                }
+            }.blur(paneBlur, BlurredEdgeTreatment.Rectangle),
+            animationSpec = tween(650), label = "song",
+        ) { t ->
             Box(Modifier.fillMaxSize()) {
                 if (Settings.npStyle == "bleed") CoverBackdrop(ui.pal, w, split, clearTop, coverAlpha, t, sideScale, space, onCoverBottom = { if (t.id == ui.t.id) coverBottom = it }) { swipe.value * 0.5f }
                 else StyledBackdrop(Settings.npStyle, ui.pal, t, split)
             }
+        }
+        // depth effect: the edges sink into shadow so the background reads as far behind the glass
+        if (depthOn) androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            drawRect(Brush.radialGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.55f), center = center, radius = size.maxDimension * 0.62f))
         }
         if (paneDim > 0f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = paneDim)))
 
@@ -233,7 +251,13 @@ fun GlassPlayer(ui: PlayerUi) {
             val size = minOf(base, CoverSpace(clearTop, titleTop, 112.dp, 3f).room).coerceAtLeast(120.dp)
             val top = space.topFor(size)
             androidx.compose.runtime.SideEffect { coverBottom = top + size }
-            Crossfade(ui.t, Modifier.offset(y = top).fillMaxWidth(), animationSpec = tween(500), label = "cover") { StyledCover(Settings.npStyle, it, { swipe.value * 0.5f }, size) }
+            Crossfade(
+                ui.t,
+                Modifier.offset(y = top).fillMaxWidth().graphicsLayer {
+                    if (depthOn) { translationX = tilt.value.x * 7.dp.toPx(); translationY = -tilt.value.y * 7.dp.toPx() } // the cover floats toward you
+                },
+                animationSpec = tween(500), label = "cover",
+            ) { StyledCover(Settings.npStyle, it, { swipe.value * 0.5f }, size) }
         }
         // Lyrics (one line or three): centered between where the cover ends and the title; they open and close inside this
         // space, so nothing else moves
