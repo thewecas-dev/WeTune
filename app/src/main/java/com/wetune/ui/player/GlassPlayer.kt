@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.displayCutout
@@ -462,10 +463,10 @@ private fun LyricLineContent(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: 
             // optional: the inline line in Latin letters for Tamil, Hindi, Telugu… (the full lyrics panel is unchanged)
         val shownLine = line?.let { if (Settings.romanInline) romanize(it) ?: it else it }
         val sung = lines.getOrNull(i)?.takeIf { it.text.trim() == line?.trim() } // this line's timing (not for one that's leaving)
-        val inlineStyle = Type.body.copy(fontSize = 21.sp, lineHeight = 31.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center) // same as the three-line current line
+        val inlineStyle = Type.body.copy(fontSize = 21.sp, lineHeight = 31.sp, fontWeight = FontWeight.SemiBold, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center) // same as the three-line current line; italic marks it as lyrics
         if (shownLine != null && sung != null && Settings.inlineWords && previewMs == null)
-            InlineSung(sung, shownLine, ui.pos + Lyrics.offset(ui.t.id), inlineStyle, Modifier.weight(1f, fill = false), lyricTint(ui.pal))
-        else if (shownLine != null) Txt(shownLine, Modifier.weight(1f, fill = false), style = inlineStyle, color = lyricTint(ui.pal), maxLines = 2)
+            InlineSung(sung, shownLine, ui.pos + Lyrics.offset(ui.t.id), inlineStyle, Modifier.weight(1f, fill = false))
+        else if (shownLine != null) Txt(shownLine, Modifier.weight(1f, fill = false), style = inlineStyle, color = Color.White, maxLines = 2)
             else MusicBreak()
         }
     }
@@ -708,8 +709,8 @@ private fun InlineSung(line: Lyrics.Line, shown: String, pos: Long, style: andro
 private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?) {
     val i = currentLine(lines, previewMs ?: ui.pos, Lyrics.offset(ui.t.id))
     fun text(k: Int) = lines.getOrNull(k)?.text?.takeIf { it.isNotBlank() }?.let { if (Settings.romanInline) romanize(it) ?: it else it }
-    val dim = Type.body.copy(fontSize = 17.sp, lineHeight = 27.sp, textAlign = TextAlign.Center)
-    val main = Type.body.copy(fontSize = 21.sp, lineHeight = 31.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+    val dim = Type.body.copy(fontSize = 17.sp, lineHeight = 27.sp, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
+    val main = Type.body.copy(fontSize = 21.sp, lineHeight = 31.sp, fontWeight = FontWeight.SemiBold, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
     AnimatedContent(
         i, Modifier.fillMaxWidth().padding(top = 6.dp).pressable(scale = 0.98f) { ui.toggle("lyrics") },
         transitionSpec = {
@@ -722,8 +723,8 @@ private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?)
             Txt(text(k - 1).orEmpty(), Modifier.fillMaxWidth(), style = dim, color = Color.White.copy(alpha = 0.4f), maxLines = 1)
             val cur = text(k); val sung = lines.getOrNull(k)
             if (cur != null && sung != null && Settings.inlineWords && previewMs == null)
-                InlineSung(sung, cur, ui.pos + Lyrics.offset(ui.t.id), main, Modifier.fillMaxWidth().padding(vertical = 4.dp), lyricTint(ui.pal))
-            else if (cur != null) Txt(cur, Modifier.fillMaxWidth().padding(vertical = 4.dp), style = main, color = lyricTint(ui.pal), maxLines = 2)
+                InlineSung(sung, cur, ui.pos + Lyrics.offset(ui.t.id), main, Modifier.fillMaxWidth().padding(vertical = 4.dp))
+            else if (cur != null) Txt(cur, Modifier.fillMaxWidth().padding(vertical = 4.dp), style = main, color = Color.White, maxLines = 2)
             else if (lines.isEmpty()) Txt("", Modifier.fillMaxWidth().padding(vertical = 4.dp), style = main, maxLines = 1) // loading: same height, nothing shown
             else Box(Modifier.fillMaxWidth().heightIn(min = 31.dp).padding(vertical = 4.dp), Alignment.Center) { MusicBreak() } // a full line tall, like the text
             Txt(text(k + 1).orEmpty(), Modifier.fillMaxWidth(), style = dim, color = Color.White.copy(alpha = 0.4f), maxLines = 1)
@@ -747,7 +748,3 @@ private fun GoToItems(ui: PlayerUi, menuOpen: Boolean, run: (() -> Unit) -> Unit
     if (album != null) MenuItem("Go to album", { run { ui.open(album) } }, Ic.Library)
     else if (ui.t.album.isNotBlank()) MenuItem("Go to album", { run { ui.search(ui.t.album) } }, Ic.Library)
 }
-
-/** The line being sung, in the cover's own color: its vibrant swatch, lightened until it reads clearly on the dark player. */
-private fun lyricTint(pal: ArtPalette): Color =
-    androidx.compose.ui.graphics.lerp(readableAccent(pal.band, dark = true), Color.White, 0.5f) // halfway to white
