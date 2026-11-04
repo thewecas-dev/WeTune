@@ -122,8 +122,18 @@ object Playback {
      */
     fun startRadio(t: Track) {
         if (t.source != "yt") return play(listOf(t), from = "Radio" to t.title)
-        // start the song at once; the similar songs join the queue behind it when they arrive
-        play(listOf(t), from = "Radio" to t.title)
+        val c0 = c
+        if (c0 != null && c0.currentMediaItem?.mediaId == t.id) {
+            // radio for the song that's already playing: it keeps playing; only the rest of the queue is replaced
+            val i = c0.currentMediaItemIndex
+            if (i + 1 < c0.mediaItemCount) c0.removeMediaItems(i + 1, c0.mediaItemCount)
+            if (i > 0) c0.removeMediaItems(0, i)
+            from = "Radio" to t.title
+            Settings.lastFrom = "Radio0000${t.title}"
+        } else {
+            // start the song at once; the similar songs join the queue behind it when they arrive
+            play(listOf(t), from = "Radio" to t.title)
+        }
         Settings.radioSeed = t.ref
         appScope.launch {
             val more = withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.wetune.youtube.YouTube.radio(t.ref) }.getOrDefault(emptyList()) }

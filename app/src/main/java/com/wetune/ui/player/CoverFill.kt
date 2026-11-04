@@ -110,7 +110,7 @@ fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: F
             val fits = w * sideScale * ratio <= room
             val coverW = if (fits) w * sideScale else room / ratio
             val coverH = coverW * ratio
-            val top = if (fits) split - coverH else topLimit
+            val top = topLimit // right under the header; the stretch fills the space below it
             if (!fits) Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = coverAlpha }.blur(60.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.9f)
             if (mode == "mirror") Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = coverAlpha }.blur(14.dp, BlurredEdgeTreatment.Rectangle)) {
                 extend(img, top.toPx(), coverH.toPx(), mirror = true, coverWidth = coverW.toPx())
@@ -255,7 +255,7 @@ private fun DrawScope.extend(img: ImageBitmap, top: Float, h: Float, mirror: Boo
 private fun BlurBackdrop(t: Track, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, sideScale: Float) {
     // on short screens the cover shrinks so it never runs under the title, nor up under the header
     val size = minOf(w * sideScale, (split - clearTop) / 0.95f).coerceAtLeast(120.dp)
-    val top = maxOf(split + size * 0.05f - size, clearTop)
+    val top = clearTop // right under the header
     val coverMod = Modifier.offset(y = top).fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally, unbounded = true).requiredSize(size)
     Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.6f; scaleY = 1.6f }.blur(70.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.85f)
     Cover(t, coverMod.graphicsLayer { scaleX = 1.15f; scaleY = 1.15f }.blur(40.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.9f)

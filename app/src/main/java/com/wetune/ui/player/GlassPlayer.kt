@@ -123,7 +123,7 @@ fun GlassPlayer(ui: PlayerUi) {
     // where the cover may start: under the status bar or camera cutout, the grabber and "Playing from", plus a gap
     var headerH by remember { mutableStateOf(64.dp) }
     val cutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
-    val clearTop = maxOf(statusTop, cutTop) + headerH + 8.dp
+    val clearTop = maxOf(statusTop, cutTop) + headerH // the cover starts right under the header
     var seekDrag by remember { mutableStateOf<Float?>(null) } // while dragging the seek bar: where you'd land
     var coverMenu by remember { mutableStateOf(false) }
     var pipeline by remember { mutableStateOf(false) }
@@ -224,7 +224,7 @@ fun GlassPlayer(ui: PlayerUi) {
             // the controls: a fixed-height block pinned to the bottom, rows spaced evenly inside it
             Column(Modifier.fillMaxWidth().height(blockH)) {
                 TitleRow(ui) { pipeline = true }
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.height(8.dp)) // the seek bar sits close under the title
                 GlassSeek(ui, onQuality = { audioOptions = true }) { seekDrag = it }
                 Spacer(Modifier.weight(1f))
                 Transport()
