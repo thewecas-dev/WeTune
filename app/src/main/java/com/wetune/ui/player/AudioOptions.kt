@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.background
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,7 +63,7 @@ fun AudioOptionsSheet(t: Track, onPipeline: () -> Unit, onDismiss: () -> Unit) {
 private fun VersionList(t: Track, list: List<Resolver.Version>, playing: String?, pinned: String?, onDismiss: () -> Unit) {
     list.forEach { v ->
         val len = if (v.durationMs > 0) " · %d:%02d".format(v.durationMs / 60_000, v.durationMs / 1000 % 60) else ""
-        VersionRow(v.title, v.detail, listOf(v.quality, v.source).filter(String::isNotBlank).joinToString(" · ") + len, v.choice == playing, v.choice == pinned) {
+        VersionRow(v.title, v.detail, Triple(v.quality, v.source, len), v.choice == playing, v.choice == pinned) {
             Playback.useVersion(t, v.choice); onDismiss()
         }
         Divider(Modifier.padding(start = 4.dp))
@@ -76,7 +79,7 @@ private fun nowSource(t: Track, playing: String?): String = when {
 }
 
 @Composable
-private fun VersionRow(title: String, detail: String, quality: String?, playing: Boolean?, chosen: Boolean, onClick: () -> Unit) {
+private fun VersionRow(title: String, detail: String, quality: Triple<String, String, String>?, playing: Boolean?, chosen: Boolean, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).pressable(scale = 0.98f, onClick = onClick).padding(vertical = 10.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -84,7 +87,18 @@ private fun VersionRow(title: String, detail: String, quality: String?, playing:
         Column(Modifier.weight(1f)) {
             Txt(title, style = Type.bodyStrong, maxLines = 1)
             Txt(detail, style = Type.caption, color = WT.c.muted, maxLines = 1)
-            if (quality != null) Txt(quality, Modifier.padding(top = 1.dp), style = Type.caption, color = WT.c.text.copy(alpha = 0.8f), maxLines = 1)
+            // badge · quality · source (highlighted) · length
+            if (quality != null) Row(Modifier.padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                val (q, source, len) = quality
+                Txt(
+                    badgeFor(q), Modifier.padding(end = 6.dp).clip(RoundedCornerShape(3.dp)).background(WT.c.text.copy(alpha = 0.8f)).padding(horizontal = 3.dp),
+                    style = Type.overline.copy(fontSize = 8.sp, letterSpacing = 0.3.sp, lineHeight = 11.sp), color = WT.c.bg, weight = FontWeight.Bold,
+                )
+                Txt(q, style = Type.caption, color = WT.c.text.copy(alpha = 0.8f), maxLines = 1)
+                Txt(" · ", style = Type.caption, color = WT.c.muted)
+                Txt(source, Modifier.weight(1f, fill = false), style = Type.caption, color = WT.c.accent, weight = FontWeight.SemiBold, maxLines = 1)
+                Txt(len, style = Type.caption, color = WT.c.muted, maxLines = 1)
+            }
         }
         if (playing == true) Icon(Ic.Volume, "Playing", Modifier.padding(start = 8.dp), size = 18.dp, tint = WT.c.accent)
         Row(Modifier.padding(start = 10.dp).size(24.dp), verticalAlignment = Alignment.CenterVertically) { CheckMark(chosen) }
@@ -101,4 +115,15 @@ private fun rank(quality: String): Int {
     }
     val kbps = Regex("""(\d+) kbps""").find(q)?.groupValues?.get(1)?.toIntOrNull() ?: 0
     return kbps * 10 - (if ("up to" in q) 1 else 0) // a fixed 160 kbps file edges out YouTube's "up to 160"
+}
+
+/** The same badge the player shows: HI-RES (over 16-bit or 48 kHz), LOSSLESS, HQ (256 kbps and up) or SQ. */
+private fun badgeFor(quality: String): String {
+    val r = rank(quality)
+    return when {
+        r >= 100_000 -> if (Regex("""(\d+)-bit""").find(quality)?.groupValues?.get(1)?.toIntOrNull()?.let { it > 16 } == true ||
+            (Regex("""([\d.]+) kHz""").find(quality)?.groupValues?.get(1)?.toFloatOrNull() ?: 0f) > 48f) "HI-RES" else "LOSSLESS"
+        r >= 2_560 -> "HQ"
+        else -> "SQ"
+    }
 }

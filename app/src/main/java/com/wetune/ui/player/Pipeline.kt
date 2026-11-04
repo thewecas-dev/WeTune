@@ -60,8 +60,8 @@ fun PipelineSheet(t: Track, onDismiss: () -> Unit) {
     val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     val sourceName = when {
-        t.source == "yt" && url?.contains("googlevideo") != true && com.wetune.Resolver.copyName(t.ref) != null -> com.wetune.Resolver.copyName(t.ref)!! + " · upgraded from YouTube"
-        fromSaavn -> "JioSaavn · 320 kbps · upgraded from YouTube"
+        t.source == "yt" && url?.contains("googlevideo") != true && com.wetune.Resolver.copyName(t.ref) != null -> com.wetune.Resolver.copyName(t.ref)!!
+        fromSaavn -> "JioSaavn · 320 kbps"
         downloaded -> "Downloaded copy"
         else -> when (t.source) { "yt" -> "YouTube Music"; "saavn" -> "JioSaavn"; "subsonic" -> "Subsonic server"; else -> "This phone" }
     }
