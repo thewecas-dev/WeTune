@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The WeTune mark, "Duo": two overlapping circles with the shared part cut out as a lens
+     (two people listening together, two speakers, two records). Even-odd fill makes the cut-out.
+     Kept inside the 66dp adaptive-icon safe zone (21..87). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M27,54a17,17 0,1 0,34 0a17,17 0,1 0,-34 0zM47,54a17,17 0,1 0,34 0a17,17 0,1 0,-34 0z" />
+</vector>
