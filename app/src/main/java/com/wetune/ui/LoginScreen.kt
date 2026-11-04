@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.Column
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
 import com.wetune.Settings
 import com.wetune.io
@@ -30,13 +32,16 @@ private const val LOGIN_URL = "https://accounts.google.com/ServiceLogin?ltmpl=mu
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun LoginScreen(back: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(WT.c.bg).statusBarsPadding()) {
+    val bg = WT.c.bg.toArgb()
+    androidx.activity.compose.BackHandler(onBack = back)
+    Column(Modifier.fillMaxSize().background(WT.c.bg).statusBarsPadding().navigationBarsPadding()) {
         IconBtn(Ic.Back, "Back", back)
         AndroidView(
             modifier = Modifier.weight(1f),
             factory = { ctx ->
                 CookieManager.getInstance().removeAllCookies(null)
                 WebView(ctx).apply {
+                    setBackgroundColor(bg) // no white flash between Google's pages in dark mode
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     webViewClient = object : WebViewClient() {

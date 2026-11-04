@@ -115,7 +115,7 @@ fun AppUi() {
                 Screen.Search -> SearchScreen(open)
                 Screen.Library -> LibraryScreen(open)
                 Screen.Settings -> SettingsScreen(open)
-                Screen.Login -> LoginScreen(back)
+                Screen.Login -> {} // drawn below, outside the glass layer
                 is Screen.SettingsPage -> SettingsPageScreen(s.id, open, back)
                 is Screen.Yt -> YtPageScreen(s.card, open, back)
                 is Screen.LocalPlaylist -> LocalPlaylistScreen(s.name, back)
@@ -148,6 +148,9 @@ fun AppUi() {
                 stack.clear(); stack.add(Screen.Search)
             })
         }
+        // Sign-in is a WebView: kept out of the blurred glass layer (re-capturing it every frame made it flicker) and
+        // above the nav bar and mini-player, which it doesn't need
+        if (stack.last() == Screen.Login) LoginScreen(back)
     }
 }
 
