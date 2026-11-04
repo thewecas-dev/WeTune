@@ -67,3 +67,12 @@ Phase 1 (current) = Android, Compose + Media3, YouTube Music (cookie, two-way sy
 - [ ] "Continue where you left off" card on Home
 - [ ] Data-saver mode
 - [ ] Quick queue gestures (swipe to play next / add to queue)
+
+## Audio add-ons — next (after 0.2.0 add-ons)
+- True crossfade (two overlapping decoders, equal-power) — today "Fade between songs" fades out/in without overlap
+- AutoEq headphone correction (parametric profiles for 8k+ headphones), applied before the user EQ
+- 15-band EQ option, "Clarity" tone curve
+- 3D / room placement (front, overhead, behind) beyond 8D panning
+- Lossless add-ons (BitChord-style manifests), "Lossless above Max" step in the quality ladder
+- Bit-perfect USB DAC output (Android 14+), 32-bit float output
+- Volume levels for normalization (Quiet / Normal / Loud), pause at zero volume, resume on headphone connect
