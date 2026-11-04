@@ -464,8 +464,8 @@ private fun LyricLineContent(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: 
         val sung = lines.getOrNull(i)?.takeIf { it.text.trim() == line?.trim() } // this line's timing (not for one that's leaving)
         val inlineStyle = Type.body.copy(fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
         if (shownLine != null && sung != null && Settings.inlineWords && previewMs == null)
-            InlineSung(sung, shownLine, ui.pos + Lyrics.offset(ui.t.id), inlineStyle, Modifier.weight(1f, fill = false))
-        else if (shownLine != null) Txt(shownLine, Modifier.weight(1f, fill = false), style = inlineStyle, color = Color.White.copy(alpha = if (previewMs != null) 1f else 0.9f), maxLines = 2)
+            InlineSung(sung, shownLine, ui.pos + Lyrics.offset(ui.t.id), inlineStyle, Modifier.weight(1f, fill = false), lyricTint(ui.pal))
+        else if (shownLine != null) Txt(shownLine, Modifier.weight(1f, fill = false), style = inlineStyle, color = lyricTint(ui.pal), maxLines = 2)
             else MusicBreak()
         }
     }
@@ -694,10 +694,10 @@ private fun Modifier.shared(key: String, text: Boolean = false): Modifier {
 
 /** The one-line lyric above the seek bar, filling in letter by letter when the lyrics are timed per word. */
 @Composable
-private fun InlineSung(line: Lyrics.Line, shown: String, pos: Long, style: androidx.compose.ui.text.TextStyle, modifier: Modifier) {
+private fun InlineSung(line: Lyrics.Line, shown: String, pos: Long, style: androidx.compose.ui.text.TextStyle, modifier: Modifier, tint: Color = Color.White) {
     val words = remember(line, shown) { wordsOf(line, shown) }
-        ?: return Txt(shown, modifier, style = style, color = Color.White.copy(alpha = 0.9f), maxLines = 2)
-    KaraokeText(words, smoothPosition(pos + 150), style, lit = Color.White, dim = Color.White.copy(alpha = 0.45f), modifier = modifier, maxLines = 2)
+        ?: return Txt(shown, modifier, style = style, color = tint, maxLines = 2)
+    KaraokeText(words, smoothPosition(pos + 150), style, lit = tint, dim = Color.White.copy(alpha = 0.45f), modifier = modifier, maxLines = 2)
 }
 
 /**
@@ -722,8 +722,8 @@ private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?)
             Txt(text(k - 1).orEmpty(), Modifier.fillMaxWidth(), style = dim, color = Color.White.copy(alpha = 0.4f), maxLines = 1)
             val cur = text(k); val sung = lines.getOrNull(k)
             if (cur != null && sung != null && Settings.inlineWords && previewMs == null)
-                InlineSung(sung, cur, ui.pos + Lyrics.offset(ui.t.id), main, Modifier.fillMaxWidth().padding(vertical = 4.dp))
-            else if (cur != null) Txt(cur, Modifier.fillMaxWidth().padding(vertical = 4.dp), style = main, color = Color.White, maxLines = 2)
+                InlineSung(sung, cur, ui.pos + Lyrics.offset(ui.t.id), main, Modifier.fillMaxWidth().padding(vertical = 4.dp), lyricTint(ui.pal))
+            else if (cur != null) Txt(cur, Modifier.fillMaxWidth().padding(vertical = 4.dp), style = main, color = lyricTint(ui.pal), maxLines = 2)
             else if (lines.isEmpty()) Txt("", Modifier.fillMaxWidth().padding(vertical = 4.dp), style = main, maxLines = 1) // loading: same height, nothing shown
             else Box(Modifier.fillMaxWidth().heightIn(min = 31.dp).padding(vertical = 4.dp), Alignment.Center) { MusicBreak() } // a full line tall, like the text
             Txt(text(k + 1).orEmpty(), Modifier.fillMaxWidth(), style = dim, color = Color.White.copy(alpha = 0.4f), maxLines = 1)
@@ -747,3 +747,7 @@ private fun GoToItems(ui: PlayerUi, menuOpen: Boolean, run: (() -> Unit) -> Unit
     if (album != null) MenuItem("Go to album", { run { ui.open(album) } }, Ic.Library)
     else if (ui.t.album.isNotBlank()) MenuItem("Go to album", { run { ui.search(ui.t.album) } }, Ic.Library)
 }
+
+/** The line being sung, in the cover's own color: its vibrant swatch, lightened until it reads clearly on the dark player. */
+private fun lyricTint(pal: ArtPalette): Color =
+    androidx.compose.ui.graphics.lerp(readableAccent(pal.band, dark = true), Color.White, 0.25f)
