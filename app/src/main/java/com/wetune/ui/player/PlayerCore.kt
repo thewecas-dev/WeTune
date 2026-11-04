@@ -180,7 +180,15 @@ fun Cover(t: Track, modifier: Modifier, alpha: Float = 1f) {
 fun rememberVersions(t: Track): List<Lyrics.Version>? {
     // tagged with the song id, so after a song change the previous song's lyrics are never shown while the new ones load
     val s = produceState(Lyrics.cached(t.id)?.let { t.id to it }, t.id) {
-        value = t.id to (Lyrics.cached(t.id) ?: withContext(Dispatchers.IO) { runCatching { Lyrics.versions(t) }.getOrDefault(emptyList()) })
+        suspend fun look() = Lyrics.cached(t.id) ?: withContext(Dispatchers.IO) { runCatching { Lyrics.versions(t) }.getOrDefault(emptyList()) }
+        var found = look()
+        // a lookup that hit a busy server isn't remembered; try twice more (the lyrics area stays as it was meanwhile)
+        for (wait in listOf(3_000L, 6_000L)) {
+            if (found.isNotEmpty() || Lyrics.cached(t.id) != null) break
+            kotlinx.coroutines.delay(wait)
+            found = look()
+        }
+        value = t.id to found
     }.value
     return s?.takeIf { it.first == t.id }?.second ?: Lyrics.cached(t.id)
 }

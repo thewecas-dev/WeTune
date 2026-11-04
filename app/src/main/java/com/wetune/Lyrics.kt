@@ -58,12 +58,16 @@ object Lyrics {
     // ---- fetching ----
 
     /** Blocking. All versions for [t], best first (exact match, then synced, then plain); cached. */
-    fun versions(t: Track): List<Version> = cache[t.id] ?: load(t).also { cache[t.id] = it }
+    fun versions(t: Track): List<Version> = cache[t.id] ?: load(t).also { if (it.isNotEmpty() || !troubled.remove(t.id)) cache[t.id] = it }
+
+    // songs whose last lookup hit a busy server, a timeout or no connection: "nothing found" isn't trusted for them, so
+    // the next look (the next play or reopening the player) asks again instead of remembering "no lyrics"
+    private val troubled = ConcurrentHashMap.newKeySet<String>()
 
     private fun load(t: Track): List<Version> {
         // BetterLyrics (word-by-word timing for many songs) and LRCLIB, asked at the same time
         val better = java.util.concurrent.CompletableFuture.supplyAsync { runCatching { betterLyrics(t) }.getOrNull() }
-        val lrclib = lrclib(t)
+        val lrclib = lrclib(t) { troubled.add(t.id) }
         val all = listOfNotNull(runCatching { better.get(12, java.util.concurrent.TimeUnit.SECONDS) }.getOrNull()) + lrclib
         // word-synced first (when that style is on), then line-synced, then plain
         return all.sortedWith(compareByDescending<Version> { it.words && Settings.lyricsWords }.thenByDescending { it.synced }).take(12)
@@ -113,14 +117,16 @@ object Lyrics {
 
     private fun unescape(s: String) = s.replace("&amp;", "&").replace("&apos;", "'").replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">")
 
-    private fun lrclib(t: Track): List<Version> {
+    private fun lrclib(t: Track, onTrouble: () -> Unit): List<Version> {
+        // LRCLIB answers 404 when it simply has no lyrics; anything else (busy, timeout, offline) is trouble
+        fun trouble(e: Throwable) { if (e.message?.contains("(404)") != true) onTrouble() }
         val api = "https://lrclib.net/api"
         val artist = t.artist.substringBefore(',').trim()
         fun q(title: String) = "track_name=${title.urlEncode()}&artist_name=${artist.urlEncode()}"
         val exact = if (t.durationMs > 0) runCatching {
             JSONObject(httpGet("$api/get?${q(t.title)}&album_name=${t.album.urlEncode()}&duration=${t.durationMs / 1000}"))
-        }.getOrNull() else null
-        fun search(title: String) = runCatching { JSONArray(httpGet("$api/search?${q(title)}")).objects() }.getOrDefault(emptyList())
+        }.onFailure(::trouble).getOrNull() else null
+        fun search(title: String) = runCatching { JSONArray(httpGet("$api/search?${q(title)}")).objects() }.onFailure(::trouble).getOrDefault(emptyList())
         // film songs are often titled "Song (From \"Movie\")"; search with just the song name too
         val bare = t.title.replace(Regex("""\s*[(\[][^)\]]*[)\]]"""), "").trim()
         val found = listOfNotNull(exact) + search(t.title) + (if (bare.isNotBlank() && bare != t.title) search(bare) else emptyList())
