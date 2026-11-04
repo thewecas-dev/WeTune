@@ -36,6 +36,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.getValue
@@ -197,7 +199,17 @@ fun LyricsView(t: Track, pos: Long, modifier: Modifier = Modifier.fillMaxSize())
     val synced = lines.first().ms >= 0
     val current = currentLine(lines, pos, Lyrics.offset(t.id))
     val state = rememberLazyListState()
-    LaunchedEffect(current) { if (current >= 0) state.animateScrollToItem((current - 2).coerceAtLeast(0)) }
+    // how the panel moves between lines (Settings → Appearance → Lyrics panel): glide | fade | instant
+    val motion = Settings.lyricsMotion
+    val align = when (Settings.lyricsAlign) { "center" -> TextAlign.Center; "end" -> TextAlign.End; else -> TextAlign.Start }
+    val originX = when (Settings.lyricsAlign) { "center" -> 0.5f; "end" -> 1f; else -> 0f }
+    val size = Settings.lyricsSize
+    val lineStyle = TextStyle(fontSize = size.sp, lineHeight = (size * Settings.lyricsLeading / 100f).sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp, textAlign = align)
+    LaunchedEffect(current) {
+        if (current < 0) return@LaunchedEffect
+        val target = (current - 2).coerceAtLeast(0)
+        if (motion == "instant") state.scrollToItem(target) else state.animateScrollToItem(target)
+    }
     val c = LocalContentColor.current
     val canRomanize = remember(lines) { lines.any { romanize(it.text) != null } }
     Box(modifier) {
@@ -212,23 +224,25 @@ fun LyricsView(t: Track, pos: Long, modifier: Modifier = Modifier.fillMaxSize())
         ) {
             itemsIndexed(lines) { i, line ->
                 val active = !synced || i == current
-                val grow by animateFloatAsState(if (active && synced) 1f else 0.94f, spring(dampingRatio = 0.8f), label = "grow")
+                // glide: the sung line grows a little; fade: lines only brighten and dim; instant: no animation at all
+                val grow by animateFloatAsState(if (motion != "glide" || (active && synced)) 1f else 0.94f, spring(dampingRatio = 0.8f), label = "grow")
+                val shade = if (active) 1f else (0.42f - 0.06f * kotlin.math.abs(i - current).coerceAtMost(4)).coerceAtLeast(0.18f)
+                val fade by animateFloatAsState(shade, if (motion == "instant") androidx.compose.animation.core.snap() else tween(320), label = "fade")
                 Column(
                     Modifier.fillMaxWidth().then(if (synced) Modifier.pressable(scale = 0.98f) { Playback.seek(line.ms) } else Modifier)
-                        .graphicsLayer { scaleX = grow; scaleY = grow; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
+                        .graphicsLayer { scaleX = grow; scaleY = grow; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(originX, 0.5f) }
                         .padding(vertical = 10.dp),
                 ) {
-                    val lineStyle = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp)
                     // the line being sung fills in letter by letter (only when the lyrics provider timed it word by word)
                     if (synced && i == current && Settings.lyricsWords && line.text.isNotBlank()) SungLine(line, pos + Lyrics.offset(t.id), lineStyle, c)
                     else Txt(
-                        line.text.ifBlank { "♪" },
+                        line.text.ifBlank { "♪" }, Modifier.fillMaxWidth(),
                         style = lineStyle,
                         // lines further from the current one fade more (a per-line blur was too heavy to scroll smoothly)
-                        color = c.copy(alpha = if (active) 1f else (0.42f - 0.06f * kotlin.math.abs(i - current).coerceAtMost(4)).coerceAtLeast(0.18f)),
+                        color = c.copy(alpha = fade),
                     )
                     if (Settings.lyricsRoman) romanize(line.text)?.let {
-                        Txt(it, Modifier.padding(top = 4.dp), style = Type.body.copy(fontSize = 16.sp, lineHeight = 21.sp), color = c.copy(alpha = if (active) 0.75f else 0.3f))
+                        Txt(it, Modifier.fillMaxWidth().padding(top = 4.dp), style = Type.body.copy(fontSize = (size * 0.57f).sp, lineHeight = (size * 0.75f).sp, textAlign = align), color = c.copy(alpha = if (active) 0.75f else 0.3f))
                     }
                 }
             }
@@ -386,8 +400,8 @@ private fun LyricsOffsetButton(t: Track) {
 @Composable
 private fun SungLine(line: Lyrics.Line, pos: Long, style: TextStyle, c: Color) {
     val words = remember(line) { wordsOf(line) }
-        ?: return Txt(line.text, style = style, color = c)
-    KaraokeText(words, smoothPosition(pos + 150), style.copy(color = c), lit = c, dim = c.copy(alpha = 0.32f))
+        ?: return Txt(line.text, Modifier.fillMaxWidth(), style = style, color = c)
+    KaraokeText(words, smoothPosition(pos + 150), style.copy(color = c), lit = c, dim = c.copy(alpha = 0.32f), modifier = Modifier.fillMaxWidth())
 }
 
 /** One lyrics version in the menu: the source first, then how it's timed (word by word, by line, or not), then the song. */

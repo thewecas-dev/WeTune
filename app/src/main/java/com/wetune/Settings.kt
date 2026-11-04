@@ -25,7 +25,14 @@ object Settings {
     var radioSeed by Str("radio_seed", "") // YouTube id the current radio started from, so auto-added songs stay related
     var lastFrom by Str("last_from", "") // what the current queue was started from, kind + NUL + name
     var showVolume by Bool("show_volume", true) // volume slider in Now Playing
+    var npStyle by Str("np_style", "bleed") // Now Playing look: bleed (Bleeding edge) | classic | strips | disc
     var npFill by Str("np_fill", "stretch") // how the player fills around the cover: stretch | mirror | blur
+    var inlineStyle by Str("inline_style", "line") // lyric above the seek bar: line (one line) | stack (previous · current · next)
+    // the full lyrics panel
+    var lyricsMotion by Str("lyrics_motion", "glide") // how it moves between lines: glide | fade | instant
+    var lyricsAlign by Str("lyrics_align", "start") // start | center | end
+    var lyricsSize by IntPref("lyrics_size", 28) // sp
+    var lyricsLeading by IntPref("lyrics_leading", 120) // line height, % of the font size
     var wifiHigh by Bool("wifi_high", true)
     var mobileHigh by Bool("mobile_high", false)
     // the best quality to reach per network: data (≈70 kbps) | high (best YouTube, ≈160 kbps) | max (JioSaavn 320 kbps when found)

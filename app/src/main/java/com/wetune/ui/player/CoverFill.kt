@@ -52,7 +52,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** How the space around the cover is filled. */
-val FillModes = listOf("stretch" to "Stretch", "mirror" to "Mirror", "blur" to "Blur")
+val FillModes = listOf("stretch" to "Stretch", "mirror" to "Reflection", "blur" to "Blur")
 
 /** Sharp-cover edges for stretch/mirror: a short eased blend into the extension, since it continues the same pixels. */
 /** Soft left and right edges, used when a short screen makes the cover narrower than the screen. */

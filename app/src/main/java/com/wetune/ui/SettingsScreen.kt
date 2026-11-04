@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.wetune.Library
 import com.wetune.Settings
 import com.wetune.io
@@ -139,23 +140,70 @@ private fun AppearancePage() {
         ToggleRow("Volume slider", "Show the phone's volume under the play controls", Settings.showVolume) { Settings.showVolume = it }
         Divider(Modifier.padding(start = 16.dp))
         ToggleRow("Romanized inline lyrics", "The lyric line above the seek bar shows Tamil, Hindi, Telugu… in English letters. The full lyrics stay as they are.", Settings.romanInline) { Settings.romanInline = it }
+        Divider(Modifier.padding(start = 16.dp))
+        Column(Modifier.padding(12.dp)) {
+            Txt("Lyric above the seek bar", Modifier.padding(start = 4.dp, bottom = 8.dp), style = Type.label)
+            Segmented(listOf("line" to "One line", "stack" to "Three lines"), Settings.inlineStyle, { Settings.inlineStyle = it })
+            Txt(
+                if (Settings.inlineStyle == "stack") "The line being sung, centered, with the one before and after it dimmed." else "Just the line being sung.",
+                Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
+            )
+        }
     }
     Group("Lyrics") {
         ToggleRow("Word by word", "When the lyrics are timed per word, light each line up letter by letter as it's sung", Settings.lyricsWords) { Settings.lyricsWords = it; com.wetune.Lyrics.clearCache() }
         Divider(Modifier.padding(start = 16.dp))
         ToggleRow("Fill the one-line lyric too", "The lyric above the seek bar fills letter by letter as well", Settings.inlineWords) { Settings.inlineWords = it }
     }
-    Group("Now Playing background") {
+    Group("Lyrics panel") {
         Column(Modifier.padding(12.dp)) {
-            Segmented(FillModes, Settings.npFill, { Settings.npFill = it })
+            Txt("Moving between lines", Modifier.padding(start = 4.dp, bottom = 8.dp), style = Type.label)
+            Segmented(listOf("glide" to "Glide", "fade" to "Fade", "instant" to "Instant"), Settings.lyricsMotion, { Settings.lyricsMotion = it })
             Txt(
-                when (Settings.npFill) {
-                    "stretch" -> "The cover, trimmed slightly at the sides; its top and bottom edges stretch out to fill the screen."
-                    "mirror" -> "The cover, trimmed slightly at the sides, reflected softly above and below."
-                    else -> "A blurred, zoomed copy of the cover fills the screen."
+                when (Settings.lyricsMotion) {
+                    "fade" -> "Scrolls smoothly; lines only brighten and dim."
+                    "instant" -> "Jumps straight to the next line, no animation."
+                    else -> "Scrolls smoothly; the line being sung grows a little as it lights up."
                 },
                 Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
             )
+            Txt("Alignment", Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp), style = Type.label)
+            Segmented(listOf("start" to "Left", "center" to "Center", "end" to "Right"), Settings.lyricsAlign, { Settings.lyricsAlign = it })
+        }
+        SettingSlider("Text size", "${Settings.lyricsSize} sp", (Settings.lyricsSize - 18) / 22f) { Settings.lyricsSize = 18 + Math.round(it * 22) }
+        SettingSlider("Line height", "${Settings.lyricsLeading}%", (Settings.lyricsLeading - 100) / 80f) { Settings.lyricsLeading = 100 + Math.round(it * 16) * 5 }
+        // a sample of how the panel will look
+        Txt(
+            "Every word you sang\nstill lights the way home",
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            style = Type.body.copy(fontSize = Settings.lyricsSize.sp, lineHeight = (Settings.lyricsSize * Settings.lyricsLeading / 100f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+            align = when (Settings.lyricsAlign) { "center" -> androidx.compose.ui.text.style.TextAlign.Center; "end" -> androidx.compose.ui.text.style.TextAlign.End; else -> androidx.compose.ui.text.style.TextAlign.Start },
+        )
+    }
+    Group("Now Playing style") {
+        Column(Modifier.padding(12.dp)) {
+            Segmented(NowStyles, Settings.npStyle, { Settings.npStyle = it })
+            Txt(
+                when (Settings.npStyle) {
+                    "classic" -> "The cover as a rounded card over a soft blur of its colors."
+                    "strips" -> "The cover as a card over its colors seen through ribbed glass."
+                    "disc" -> "A round cover; its colors blur across the top and fade into a deep tint."
+                    else -> "The cover runs edge to edge and its colors bleed out to fill the screen."
+                },
+                Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
+            )
+            if (Settings.npStyle == "bleed") {
+                Txt("Around the cover", Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp), style = Type.label)
+                Segmented(FillModes, Settings.npFill, { Settings.npFill = it })
+                Txt(
+                    when (Settings.npFill) {
+                        "stretch" -> "The cover, trimmed slightly at the sides; its top and bottom edges stretch out to fill the screen."
+                        "mirror" -> "The cover, trimmed slightly at the sides, reflected softly above and below."
+                        else -> "A blurred, zoomed copy of the cover fills the screen."
+                    },
+                    Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
+                )
+            }
         }
     }
     Group("Display") {
@@ -244,5 +292,16 @@ private fun AboutPage() {
     }
     Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Txt("Unofficial client. Not affiliated with YouTube, JioSaavn or Google.", style = Type.caption, color = WT.c.muted)
+    }
+}
+
+@Composable
+private fun SettingSlider(title: String, value: String, fraction: Float, onChange: (Float) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Txt(title, Modifier.weight(1f), style = Type.body)
+            Txt(value, style = Type.caption.copy(fontFeatureSettings = "tnum"), color = WT.c.muted)
+        }
+        SeekSlider(fraction.coerceIn(0f, 1f), { onChange(it.coerceIn(0f, 1f)) }, {}, Modifier.fillMaxWidth().padding(top = 8.dp), color = WT.c.accent, thumb = true)
     }
 }

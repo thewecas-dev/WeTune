@@ -134,7 +134,10 @@ fun GlassPlayer(ui: PlayerUi) {
 
         // A new song crossfades in; dragging sideways moves only the cover (not the background) to show the skip coming.
         Crossfade(ui.t, Modifier.blur(paneBlur, BlurredEdgeTreatment.Rectangle), animationSpec = tween(650), label = "song") { t ->
-            Box(Modifier.fillMaxSize()) { CoverBackdrop(ui.pal, w, split, statusTop, coverAlpha, t) { swipe.value * 0.5f } }
+            Box(Modifier.fillMaxSize()) {
+                if (Settings.npStyle == "bleed") CoverBackdrop(ui.pal, w, split, statusTop, coverAlpha, t) { swipe.value * 0.5f }
+                else StyledBackdrop(Settings.npStyle, ui.pal, t, split)
+            }
         }
         if (paneDim > 0f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = paneDim)))
 
@@ -181,6 +184,8 @@ fun GlassPlayer(ui: PlayerUi) {
                         }
                         .pointerInput(Unit) { detectTapGestures(onLongPress = { coverMenu = true }) },
             ) {
+                // classic, strips and disc frame the cover here (Bleeding edge draws it as part of the background)
+                if (Settings.npStyle != "bleed") Crossfade(ui.t, animationSpec = tween(500), label = "cover") { StyledCover(Settings.npStyle, it, { swipe.value * 0.5f }) }
                 Box(Modifier.align(Alignment.Center)) { CoverMenu(ui, coverMenu) { coverMenu = false } }
             }
         }
@@ -190,7 +195,7 @@ fun GlassPlayer(ui: PlayerUi) {
             Spacer(Modifier.weight(1f).heightIn(min = 8.dp))
             TitleRow(ui) { pipeline = true }
             LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() })
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(if (Settings.inlineStyle == "stack") 10.dp else 18.dp)) // three lyric lines need the room
             GlassSeek(ui, onQuality = { audioOptions = true }) { seekDrag = it }
             Spacer(Modifier.weight(0.6f).heightIn(min = 10.dp))
             Transport()
@@ -368,7 +373,10 @@ private fun LyricLine(ui: PlayerUi, previewMs: Long?) {
         synced,
         enter = expandVertically(spring(dampingRatio = 0.9f, stiffness = 300f), expandFrom = Alignment.Top) + fadeIn(tween(300, delayMillis = 120)),
         exit = shrinkVertically(spring(dampingRatio = 0.9f, stiffness = 300f), shrinkTowards = Alignment.Top) + fadeOut(tween(180)),
-    ) { LyricLineContent(ui, lines, previewMs) } // empty while loading or closing: a blank of the same height, so the line has something to shrink
+    ) {
+        // empty while loading or closing: a blank of the same height, so the line has something to shrink
+        if (Settings.inlineStyle == "stack" && lines.isNotEmpty()) StackLines(ui, lines, previewMs) else LyricLineContent(ui, lines, previewMs)
+    }
 }
 
 @Composable
@@ -647,4 +655,34 @@ private fun InlineSung(line: Lyrics.Line, shown: String, pos: Long, style: andro
     val words = remember(line, shown) { wordsOf(line, shown) }
         ?: return Txt(shown, modifier, style = style, color = Color.White.copy(alpha = 0.9f), maxLines = 2)
     KaraokeText(words, smoothPosition(pos + 150), style, lit = Color.White, dim = Color.White.copy(alpha = 0.45f), modifier = modifier, maxLines = 2)
+}
+
+/**
+ * Three-line inline lyrics: the line just sung and the next one dimmed around the current one, centered; each new
+ * line slides the stack up. Tap to open the full lyrics.
+ */
+@Composable
+private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?) {
+    val i = currentLine(lines, previewMs ?: ui.pos, Lyrics.offset(ui.t.id))
+    fun text(k: Int) = lines.getOrNull(k)?.text?.takeIf { it.isNotBlank() }?.let { if (Settings.romanInline) romanize(it) ?: it else it }
+    val dim = Type.body.copy(fontSize = 14.sp, lineHeight = 19.sp, textAlign = TextAlign.Center)
+    val main = Type.body.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+    AnimatedContent(
+        i, Modifier.fillMaxWidth().padding(top = 6.dp).pressable(scale = 0.98f) { ui.toggle("lyrics") },
+        transitionSpec = {
+            (androidx.compose.animation.slideInVertically(tween(380)) { it / 3 } + fadeIn(tween(380))) togetherWith
+                (androidx.compose.animation.slideOutVertically(tween(300)) { -it / 3 } + fadeOut(tween(220)))
+        },
+        label = "stack",
+    ) { k ->
+        androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Txt(text(k - 1).orEmpty(), Modifier.fillMaxWidth(), style = dim, color = Color.White.copy(alpha = 0.4f), maxLines = 1)
+            val cur = text(k); val sung = lines.getOrNull(k)
+            if (cur != null && sung != null && Settings.inlineWords && previewMs == null)
+                InlineSung(sung, cur, ui.pos + Lyrics.offset(ui.t.id), main, Modifier.fillMaxWidth().padding(vertical = 2.dp))
+            else if (cur != null) Txt(cur, Modifier.fillMaxWidth().padding(vertical = 2.dp), style = main, color = Color.White, maxLines = 2)
+            else Box(Modifier.fillMaxWidth().padding(vertical = 2.dp), Alignment.Center) { MusicBreak() }
+            Txt(text(k + 1).orEmpty(), Modifier.fillMaxWidth(), style = dim, color = Color.White.copy(alpha = 0.4f), maxLines = 1)
+        }
+    }
 }
