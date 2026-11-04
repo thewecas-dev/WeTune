@@ -228,10 +228,9 @@ fun GlassPlayer(ui: PlayerUi) {
 
         // classic, strips and disc: the framed cover, evenly spaced like Bleeding edge's (which draws it in the background)
         if (Settings.npStyle != "bleed") {
-            val withLyrics = when (Settings.npStyle) { "disc" -> w * 0.74f; "strips" -> w * 0.8f; else -> w - 48.dp }
-            // no lyrics: the cover grows into the freed space (to the screen width less 16 dp margins) instead of floating small
-            val base = androidx.compose.ui.unit.lerp(withLyrics, w - 32.dp, 1f - (reserve / fullReserve).coerceIn(0f, 1f))
-            val size = minOf(base, space.room).coerceAtLeast(120.dp)
+            val base = when (Settings.npStyle) { "disc" -> w * 0.74f; "strips" -> w * 0.8f; else -> w - 48.dp }
+            // one size whatever the lyrics (on, off, one line or three): sized for the most room lyrics can take; only its place changes
+            val size = minOf(base, CoverSpace(clearTop, titleTop, 112.dp, 3f).room).coerceAtLeast(120.dp)
             val top = space.topFor(size)
             androidx.compose.runtime.SideEffect { coverBottom = top + size }
             Crossfade(ui.t, Modifier.offset(y = top).fillMaxWidth(), animationSpec = tween(500), label = "cover") { StyledCover(Settings.npStyle, it, { swipe.value * 0.5f }, size) }
