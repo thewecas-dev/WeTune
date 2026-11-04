@@ -125,7 +125,7 @@ fun GlassPlayer(ui: PlayerUi) {
     var headerH by remember { mutableStateOf(64.dp) }
     val cutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
     val headerTop = (maxOf(statusTop, cutTop) - 8.dp).coerceAtLeast(2.dp) // the header tucks a little into the cutout band
-    val clearTop = headerTop + headerH // the cover starts right under the header
+    val clearTop = headerTop + (if (Settings.npHeader) headerH else 0.dp) // the cover starts right under the header (or at the top when it's hidden)
     var seekDrag by remember { mutableStateOf<Float?>(null) } // while dragging the seek bar: where you'd land
     var coverMenu by remember { mutableStateOf(false) }
     var pipeline by remember { mutableStateOf(false) }
@@ -179,8 +179,8 @@ fun GlassPlayer(ui: PlayerUi) {
 
         // Top 60%: the corner buttons. On the cover: swipe to skip, long-press for a menu.
         Column(Modifier.fillMaxWidth().height(split).padding(start = 16.dp, end = 16.dp, top = headerTop)) {
-          // the header (grabber + Playing from) is measured so the cover never starts underneath it
-          Column(Modifier.onSizeChanged { headerH = with(density) { it.height.toDp() } }) {
+          // the header (grabber + Playing from) is measured so the cover never starts underneath it; it can be hidden in Settings
+          if (Settings.npHeader) Column(Modifier.onSizeChanged { headerH = with(density) { it.height.toDp() } }) {
             // grabber: tap to close, or drag down (the whole player follows a downward drag)
             Box(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).pressable(scale = 0.95f, onClick = ui.close)
@@ -556,15 +556,8 @@ private fun GlassSeek(ui: PlayerUi, onQuality: () -> Unit = {}, onSeekDrag: (Flo
     var width by remember { mutableFloatStateOf(1f) }
     val shown = dragging ?: ui.fraction
     val density = LocalDensity.current
-    // faint dots where each verse starts (a pause of 4 s+ in the synced lyrics), like chapter marks
-    val lines = rememberLyrics(ui.t).orEmpty()
-    val marks = remember(lines, ui.duration) {
-        if (ui.duration <= 0 || lines.firstOrNull()?.ms?.let { it < 0 } != false) emptyList()
-        else lines.zipWithNext().filter { (a, b) -> b.ms - a.ms >= 4_000 && b.text.isNotBlank() }.map { it.second.ms.toFloat() / ui.duration }.filter { it in 0.02f..0.98f }
-    }
     Column(Modifier.fillMaxWidth().shared("seek")) {
     Box(Modifier.fillMaxWidth().onSizeChanged { width = it.width.toFloat() }) {
-        Canvas(Modifier.matchParentSize()) { marks.forEach { drawCircle(Color.White.copy(alpha = 0.55f), 1.6.dp.toPx(), androidx.compose.ui.geometry.Offset(it * size.width, size.height / 2)) } }
         SeekSlider(
             shown, { dragging = it; onDrag(it) }, { dragging?.let(ui::seekTo); dragging = null; onDrag(null) },
             color = Color.White, thickness = 3.dp, thumb = true,

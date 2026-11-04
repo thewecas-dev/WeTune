@@ -139,6 +139,8 @@ private fun AppearancePage() {
     Group("Now Playing") {
         ToggleRow("Hide the status bar", "The clock and notification icons step away while Now Playing is open. Swipe down from the top to see them.", Settings.npHideStatus) { Settings.npHideStatus = it }
         Divider(Modifier.padding(start = 16.dp))
+        ToggleRow("Grabber and \"Playing from\"", "The bar at the top and what the queue was started from. Off: the cover moves up; swipe down or Back still closes the player.", Settings.npHeader) { Settings.npHeader = it }
+        Divider(Modifier.padding(start = 16.dp))
         ToggleRow("Volume slider", "Show the phone's volume under the play controls", Settings.showVolume) { Settings.showVolume = it }
         Divider(Modifier.padding(start = 16.dp))
         ToggleRow("Romanized inline lyrics", "The lyric line above the seek bar shows Tamil, Hindi, Telugu… in English letters. The full lyrics stay as they are.", Settings.romanInline) { Settings.romanInline = it }

@@ -27,6 +27,7 @@ object Settings {
     var showVolume by Bool("show_volume", true) // volume slider in Now Playing
     var npStyle by Str("np_style", "bleed") // Now Playing look: bleed (Bleeding edge) | classic | strips | disc
     var npHideStatus by Bool("np_hide_status", true) // hide the status bar (clock, notifications) while Now Playing is open
+    var npHeader by Bool("np_header", true) // the grabber and "Playing from" at the top of Now Playing
     var npFill by Str("np_fill", "stretch") // how the player fills around the cover: stretch | mirror | blur
     var showInline by Bool("show_inline", true) // lyrics on the Now Playing screen (above or below the title)
     var inlineStyle by Str("inline_style", "line") // lyric above the seek bar: line (one line) | stack (previous · current · next)
