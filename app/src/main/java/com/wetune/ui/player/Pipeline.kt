@@ -75,12 +75,6 @@ fun PipelineSheet(t: Track, onDismiss: () -> Unit) {
                 "File" to when { downloaded -> Downloads.file(t).name; t.source == "local" -> uri?.lastPathSegment; else -> null },
             ),
         )
-        // when, from where and at what quality this song has played
-        val history = AudioInfo.history
-        if (history.isNotEmpty()) Stage(
-            Ic.ArrowUp, "QUALITY HISTORY", history.last().second,
-            history.map { (at, what) -> "%d:%02d".format(at / 60_000, at / 1000 % 60) to what },
-        )
         Stage(
             Ic.Download, "TRANSFER",
             when { downloaded || t.source == "local" -> "Read from storage"; bytes > 0 && cached >= bytes -> "Played from the cache"; else -> "Streaming over ${network.first}" },

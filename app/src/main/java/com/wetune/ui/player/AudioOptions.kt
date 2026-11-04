@@ -45,15 +45,17 @@ fun AudioOptionsSheet(t: Track, onPipeline: () -> Unit, onDismiss: () -> Unit) {
         val sources = androidx.compose.runtime.remember(t.id) { Resolver.versionSources(t) }
         val tick by androidx.compose.runtime.produceState(0, sources) { while (sources.any { !it.future.isDone }) { kotlinx.coroutines.delay(150); value++ } ; value++ }
         tick // re-read the lookups as they finish
-        sources.forEach { s ->
-            val done = s.future.isDone
-            val list = if (done) runCatching { s.future.get() }.getOrDefault(emptyList()) else emptyList()
-            SourceHeader(s.name, loading = !done)
-            if (done && list.isEmpty()) Txt("No versions found", Modifier.padding(start = 4.dp, bottom = 6.dp), style = Type.caption, color = c.muted)
-            VersionList(t, list, playing, pinned, onDismiss)
-        }
-        SourceHeader("YouTube", loading = false)
-        VersionList(t, listOf(Resolver.original(t)), playing, pinned, onDismiss)
+        // highest quality first: sources by their best version (YouTube among them), each source's rows best first;
+        // sources that found nothing after those, and the ones still searching at the bottom
+        val answered = sources.filter { it.future.isDone }.map { it.name to runCatching { it.future.get() }.getOrDefault(emptyList()).sortedByDescending { v -> rank(v.quality) } } +
+            ("YouTube" to listOf(Resolver.original(t)))
+        answered.sortedWith(compareBy<Pair<String, List<Resolver.Version>>> { it.second.isEmpty() }.thenByDescending { it.second.maxOfOrNull { v -> rank(v.quality) } ?: 0 })
+            .forEach { (name, list) ->
+                SourceHeader(name, loading = false)
+                if (list.isEmpty()) Txt("No versions found", Modifier.padding(start = 4.dp, bottom = 6.dp), style = Type.caption, color = c.muted)
+                VersionList(t, list, playing, pinned, onDismiss)
+            }
+        sources.filter { !it.future.isDone }.forEach { SourceHeader(it.name, loading = true) }
     }
 }
 
@@ -98,4 +100,16 @@ private fun SourceHeader(name: String, loading: Boolean) {
         Txt(name.uppercase(), style = Type.overline, color = WT.c.accent)
         if (loading) Spinner(Modifier.padding(start = 8.dp), size = 12.dp, color = WT.c.muted)
     }
+}
+
+/** Sort key for a quality label: lossless above lossy; more bits / kHz / kbps higher ("FLAC · 24-bit · 48 kHz" > "AAC · 320 kbps"). */
+private fun rank(quality: String): Int {
+    val q = quality.lowercase()
+    if ("flac" in q || "lossless" in q || "alac" in q) {
+        val bits = Regex("""(\d+)-bit""").find(q)?.groupValues?.get(1)?.toIntOrNull() ?: 16
+        val khz = Regex("""([\d.]+) khz""").find(q)?.groupValues?.get(1)?.toFloatOrNull() ?: 44.1f
+        return 100_000 + bits * 1_000 + (khz * 10).toInt()
+    }
+    val kbps = Regex("""(\d+) kbps""").find(q)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+    return kbps * 10 - (if ("up to" in q) 1 else 0) // a fixed 160 kbps file edges out YouTube's "up to 160"
 }

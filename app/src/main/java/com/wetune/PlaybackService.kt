@@ -169,7 +169,6 @@ class PlaybackService : MediaSessionService() {
             maybeAutoplay(t)
             updateLikeButton()
             prefetchNext()
-            recordStart(t)
             // a few seconds in (after the song has settled), look up its other versions so the Audio sheet opens with them ready
             if (t.source == "yt") scope.launch { delay(3_000); if (player.currentMediaItem?.mediaId == t.id) Resolver.prefetchVersions(t) }
         }
@@ -342,7 +341,6 @@ class PlaybackService : MediaSessionService() {
                 m.track()?.let { Resolver.forget(it.source, it.ref) }
                 val at = player.currentPosition
                 refreshed(m)?.let { player.replaceMediaItem(player.currentMediaItemIndex, it); player.seekTo(at) }
-                m.track()?.let(::recordStart) // the quality history notes the new version
             }
             if (customCommand.customAction == CMD_SLEEP) {
                 sleepJob?.cancel()
@@ -389,23 +387,6 @@ class PlaybackService : MediaSessionService() {
         val uri = m.localConfiguration?.uri ?: return null
         val u = uri.buildUpon().clearQuery().apply { uri.queryParameterNames.filter { it != "u" }.forEach { k -> appendQueryParameter(k, uri.getQueryParameter(k)) } }
         return m.buildUpon().setUri(u.appendQueryParameter("u", System.currentTimeMillis().toString()).build()).build()
-    }
-
-    /** Notes which copy and quality a song started on, for the pipeline's upgrade history ("0:00 · Qobuz · FLAC 24-bit"). */
-    private fun recordStart(t: Track) {
-        scope.launch {
-            delay(900) // the decoder has reported the stream's format by now
-            if (player.currentMediaItem?.mediaId != t.id) return@launch
-            val url = AudioInfo.urlFor(t.id).orEmpty()
-            val source = when {
-                t.source == "local" || Downloads.file(t).exists() -> "This phone"
-                t.source == "subsonic" -> "Your server"
-                "googlevideo" in url -> "YouTube"
-                "saavncdn" in url -> "JioSaavn"
-                else -> Resolver.copyName(t.ref)?.substringAfter(" · ") ?: t.source
-            }
-            AudioInfo.event(t.id, player.currentPosition, listOfNotNull(source, AudioInfo.label).joinToString(" · "))
-        }
     }
 
     /**
