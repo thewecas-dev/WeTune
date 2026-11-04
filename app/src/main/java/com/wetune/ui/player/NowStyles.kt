@@ -56,12 +56,12 @@ fun StyledBackdrop(style: String, pal: ArtPalette, t: Track, split: Dp) {
                     alpha = 0.85f,
                 )
             }
-            else -> Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.6f; scaleY = 1.6f }.blur(if (style == "strips") 56.dp else 80.dp, BlurredEdgeTreatment.Rectangle), alpha = 0.9f)
+            else -> Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.6f; scaleY = 1.6f }.blur(if (style == "strips") com.wetune.Settings.stripBlur.dp else 80.dp, BlurredEdgeTreatment.Rectangle), alpha = 0.9f)
         }
         if (style == "strips") Canvas(Modifier.fillMaxSize()) {
             // ribbed glass: each strip is lit on its left edge and shaded on its right, like light bending through flutes
-            val w = 26.dp.toPx() // strip width
-            var x = -w * 0.3f
+            val w = size.width / com.wetune.Settings.stripCount.coerceAtLeast(1) // strip width: the chosen number across the screen
+            var x = 0f
             val strip = Brush.horizontalGradient(
                 0f to Color.White.copy(alpha = 0.16f), 0.18f to Color.White.copy(alpha = 0.05f), 0.55f to Color.Transparent,
                 0.85f to Color.Black.copy(alpha = 0.16f), 1f to Color.Black.copy(alpha = 0.28f), startX = 0f, endX = w,

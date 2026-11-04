@@ -26,6 +26,10 @@ object Settings {
     var lastFrom by Str("last_from", "") // what the current queue was started from, kind + NUL + name
     var showVolume by Bool("show_volume", true) // volume slider in Now Playing
     var npStyle by Str("np_style", "bleed") // Now Playing look: bleed (Bleeding edge) | classic | strips | disc
+    var stripCount by IntPref("strip_count", STRIP_COUNT) // Strips style: how many glass strips across the screen
+    var stripBlur by IntPref("strip_blur", STRIP_BLUR) // Strips style: blur of the colors behind them (dp)
+    const val STRIP_COUNT = 14
+    const val STRIP_BLUR = 56
     var npHideStatus by Bool("np_hide_status", true) // hide the status bar (clock, notifications) while Now Playing is open
     var npHeader by Bool("np_header", true) // the grabber and "Playing from" at the top of Now Playing
     var npFill by Str("np_fill", "stretch") // how the player fills around the cover: stretch | mirror | blur
