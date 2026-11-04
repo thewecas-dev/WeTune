@@ -135,15 +135,16 @@ fun GlassPlayer(ui: PlayerUi) {
         if (maxWidth > maxHeight) return@BoxWithConstraints LandscapePlayer(ui, seekDrag) { seekDrag = it }
         val w = maxWidth
         // Title, controls and corner buttons live in the bottom 40% (never less than they need); the cover owns the rest.
-        // no lyric line (none for this song, or switched off): the controls need less room, so the cover sits a bit lower
+        // The controls never move. With no lyric line (none for this song, or switched off) only the cover and background
+        // slide down into the empty lyrics space.
         val lyricLines = rememberLyrics(ui.t)
         var hasLyric by remember { mutableStateOf(true) }
         if (lyricLines != null) hasLyric = lyricLines.isNotEmpty() && lyricLines.first().ms >= 0
-        val lower by animateDpAsState(if (hasLyric && Settings.showInline) 0.dp else if (Settings.inlineStyle == "stack") 72.dp else 30.dp, tween(450), label = "lower")
-        val controlsH = maxOf(maxHeight * 0.45f, 400.dp) - lower
+        val lower by animateDpAsState(if (hasLyric && Settings.showInline) 0.dp else 56.dp, tween(450), label = "lower")
+        val controlsH = maxOf(maxHeight * 0.45f, 400.dp)
         // with lyrics showing the cover has less room, so Bleeding edge shows it whole (no side crop); without, the usual slight trim
         val sideScale by animateFloatAsState(if (hasLyric && Settings.showInline) 1f else SideScale, tween(450), label = "crop")
-        val split = maxHeight - controlsH
+        val split = maxHeight - controlsH + lower // where the cover area ends (the controls block itself stays fixed)
 
         // A new song crossfades in; dragging sideways moves only the cover (not the background) to show the skip coming.
         Crossfade(ui.t, Modifier.blur(paneBlur, BlurredEdgeTreatment.Rectangle), animationSpec = tween(650), label = "song") { t ->
@@ -213,21 +214,19 @@ fun GlassPlayer(ui: PlayerUi) {
 
         // Bottom: title · lyric line · seek · times and quality · transport · volume · lyrics | sleep+output | queue · device.
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(controlsH).navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 8.dp)) {
-            Spacer(Modifier.weight(1f).heightIn(min = 8.dp))
-            // three-line lyrics sit above the title, centered; the one-line lyric sits between the title and the seek bar
-            val stack = Settings.inlineStyle == "stack"
-            // (centered in the free space between where the blur begins and the title)
-            if (stack) { LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() }); Spacer(Modifier.weight(1f).heightIn(min = 20.dp)) }
+            // lyrics (one line or three) centered in the free space between where the blur begins and the title;
+            // they open and close inside this space, so nothing below them moves
+            Box(Modifier.weight(1f).fillMaxWidth().padding(bottom = 12.dp), Alignment.Center) { LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() }) }
+            // the controls: a fixed block pinned to the bottom
             TitleRow(ui) { pipeline = true }
-            if (!stack) LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() })
             Spacer(Modifier.height(18.dp))
             GlassSeek(ui, onQuality = { audioOptions = true }) { seekDrag = it }
-            Spacer(Modifier.weight(0.6f).heightIn(min = 10.dp))
+            Spacer(Modifier.height(22.dp))
             Transport()
-            Spacer(Modifier.weight(0.6f).heightIn(min = 10.dp))
+            Spacer(Modifier.height(22.dp))
             if (Settings.showVolume) {
                 VolumeRow()
-                Spacer(Modifier.weight(0.8f).heightIn(min = 12.dp))
+                Spacer(Modifier.height(26.dp))
             }
             BottomBar(ui)
         }
