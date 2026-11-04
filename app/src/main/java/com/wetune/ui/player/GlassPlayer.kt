@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -159,8 +160,14 @@ fun GlassPlayer(ui: PlayerUi) {
         if (open) ImmersivePane(ui, onQuality = { audioOptions = true }) { seekDrag = it } else Box(Modifier.fillMaxSize()) {
 
         // Top 60%: the corner buttons. On the cover: swipe to skip, long-press for a menu.
-        Column(Modifier.fillMaxWidth().height(split).statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.fillMaxWidth().height(split).statusBarsPadding().displayCutoutPadding().padding(start = 16.dp, end = 16.dp, top = 6.dp)) {
+            // grabber: tap to close, or drag down (the whole player follows a downward drag)
+            Box(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).pressable(scale = 0.95f, onClick = ui.close)
+                    .semantics { contentDescription = "Close player" }.padding(vertical = 8.dp),
+                Alignment.Center,
+            ) { Box(Modifier.size(40.dp, 5.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.55f))) }
+            Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 // (no close button: swipe down or Back closes the player)
                 // what the queue was started from: "PLAYING FROM PLAYLIST" over "Tamil Hits 2025"
                 Column(Modifier.weight(1f).heightIn(min = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
