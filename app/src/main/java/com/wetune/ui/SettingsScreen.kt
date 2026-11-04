@@ -37,7 +37,6 @@ private val pages = listOf(
     Page("account", "Account", "YouTube Music sign-in and sync", Ic.Person),
     Page("appearance", "Appearance", "Theme, accent color, rotation", Ic.Palette),
     Page("playback", "Playback", "Maximum quality, volume, autoplay", Ic.Tune),
-    Page("audio", "Audio add-ons", "Equalizer, bass, reverb, 8D, speed, fades", Ic.Volume),
     Page("sources", "Sources", "Lossless add-ons, JioSaavn, Subsonic", Ic.Server),
     Page("backup", "Backup", "Save or restore your on-device library", Ic.Backup),
     Page("about", "About", "Version and credits", Ic.Info),
@@ -84,7 +83,6 @@ fun SettingsPageScreen(id: String, open: (Screen) -> Unit, back: () -> Unit) {
             "account" -> AccountPage(open)
             "appearance" -> AppearancePage()
             "playback" -> PlaybackPage()
-            "audio" -> AudioAddonsPage()
             "sources" -> SourcesPage()
             "backup" -> BackupPage()
             else -> AboutPage()
@@ -238,7 +236,7 @@ private fun BackupPage() {
 @Composable
 private fun AboutPage() {
     Group {
-        SettingRow("WeTune", "Version 0.2.0")
+        SettingRow("WeTune", "Version 0.3.0")
         Divider(Modifier.padding(start = 16.dp))
         SettingRow("Sources", "YouTube Music, JioSaavn, Subsonic, this device")
         Divider(Modifier.padding(start = 16.dp))

@@ -109,13 +109,11 @@ fun PipelineSheet(t: Track, onDismiss: () -> Unit) {
         Stage(
             Ic.Volume, "PROCESSING",
             when {
-                com.wetune.Effects.summary() != "Off" -> "Add-ons: " + com.wetune.Effects.summary()
                 AudioInfo.gainDb < -0.05f -> "Loudness lowered by %.1f dB".format(-AudioInfo.gainDb)
                 else -> "No changes to the sound"
             },
             listOf(
                 "Normalization" to if (!Settings.normalize) "Off" else if (AudioInfo.gainDb < -0.05f) "%.1f dB (×%.2f)".format(AudioInfo.gainDb, Math.pow(10.0, AudioInfo.gainDb / 20.0)) else "On, no change needed",
-                "Add-ons" to com.wetune.Effects.summary(),
                 "Speed" to (Playback.speed().takeIf { it != 1f }?.let { "%.2f×".format(it) } ?: "Normal"),
                 "Resampling" to when {
                     AudioInfo.offload -> "None (offloaded to the audio chip)"
