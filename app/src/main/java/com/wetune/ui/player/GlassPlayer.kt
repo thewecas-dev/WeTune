@@ -155,7 +155,7 @@ fun GlassPlayer(ui: PlayerUi) {
         // header → cover → lyrics → title, all gaps equal; the lyrics get a fixed reserve for their style, so a line that
         // wraps doesn't move the cover
         val lyricsOn = hasLyric && Settings.showInline
-        val fullReserve = if (Settings.inlineStyle == "stack") 112.dp else 40.dp
+        val fullReserve = if (Settings.inlineStyle == "stack") 112.dp else 48.dp
         val reserve by animateDpAsState(if (lyricsOn) fullReserve else 0.dp, tween(450), label = "reserve")
         val space = CoverSpace(clearTop, titleTop, reserve, 2f + (reserve / fullReserve).coerceIn(0f, 1f))
         // with lyrics showing the cover has less room, so Bleeding edge shows it whole (no side crop); without, the usual slight trim
@@ -462,7 +462,7 @@ private fun LyricLineContent(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: 
             // optional: the inline line in Latin letters for Tamil, Hindi, Telugu… (the full lyrics panel is unchanged)
         val shownLine = line?.let { if (Settings.romanInline) romanize(it) ?: it else it }
         val sung = lines.getOrNull(i)?.takeIf { it.text.trim() == line?.trim() } // this line's timing (not for one that's leaving)
-        val inlineStyle = Type.body.copy(fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+        val inlineStyle = Type.body.copy(fontSize = 21.sp, lineHeight = 31.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center) // same as the three-line current line
         if (shownLine != null && sung != null && Settings.inlineWords && previewMs == null)
             InlineSung(sung, shownLine, ui.pos + Lyrics.offset(ui.t.id), inlineStyle, Modifier.weight(1f, fill = false), lyricTint(ui.pal))
         else if (shownLine != null) Txt(shownLine, Modifier.weight(1f, fill = false), style = inlineStyle, color = lyricTint(ui.pal), maxLines = 2)
@@ -750,4 +750,4 @@ private fun GoToItems(ui: PlayerUi, menuOpen: Boolean, run: (() -> Unit) -> Unit
 
 /** The line being sung, in the cover's own color: its vibrant swatch, lightened until it reads clearly on the dark player. */
 private fun lyricTint(pal: ArtPalette): Color =
-    androidx.compose.ui.graphics.lerp(readableAccent(pal.band, dark = true), Color.White, 0.25f)
+    androidx.compose.ui.graphics.lerp(readableAccent(pal.band, dark = true), Color.White, 0.5f) // halfway to white
