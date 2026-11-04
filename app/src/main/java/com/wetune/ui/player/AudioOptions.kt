@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,29 +40,32 @@ fun AudioOptionsSheet(t: Track, onPipeline: () -> Unit, onDismiss: () -> Unit) {
         Txt("OTHER VERSIONS", Modifier.padding(top = 20.dp, bottom = 4.dp), style = Type.overline, color = c.muted)
         Txt("Pick the right one if the song playing isn't the recording you wanted. WeTune remembers it for this song.", style = Type.caption, color = c.muted)
         VersionRow("Automatic", "Best match from your sources, in your order", null, pinned == null) { Playback.useVersion(t, null); onDismiss() }
-        // fetched in the background while the song plays, so usually already here; otherwise looked up now
-        val ready = Resolver.cachedVersions(t)
-        if (ready != null) VersionList(t, ready, playing, pinned, onDismiss)
-        else Load("versions:" + t.id, { Resolver.versions(t) }) { list, _ -> VersionList(t, list, playing, pinned, onDismiss) }
+        // each source shows its versions as soon as it answers (usually already fetched in the background);
+        // a source still searching shows a small spinner by its name
+        val sources = androidx.compose.runtime.remember(t.id) { Resolver.versionSources(t) }
+        val tick by androidx.compose.runtime.produceState(0, sources) { while (sources.any { !it.future.isDone }) { kotlinx.coroutines.delay(150); value++ } ; value++ }
+        tick // re-read the lookups as they finish
+        sources.forEach { s ->
+            val done = s.future.isDone
+            val list = if (done) runCatching { s.future.get() }.getOrDefault(emptyList()) else emptyList()
+            SourceHeader(s.name, loading = !done)
+            if (done && list.isEmpty()) Txt("No versions found", Modifier.padding(start = 4.dp, bottom = 6.dp), style = Type.caption, color = c.muted)
+            VersionList(t, list, playing, pinned, onDismiss)
+        }
+        SourceHeader("YouTube", loading = false)
+        VersionList(t, listOf(Resolver.original(t)), playing, pinned, onDismiss)
     }
 }
 
 @Composable
 private fun VersionList(t: Track, list: List<Resolver.Version>, playing: String?, pinned: String?, onDismiss: () -> Unit) {
-    val c = WT.c
-    var last: String? = null
     list.forEach { v ->
-        if (v.source != last) {
-            Txt(v.source.uppercase(), Modifier.padding(top = 14.dp, bottom = 2.dp), style = Type.overline, color = c.accent)
-            last = v.source
-        }
         val len = if (v.durationMs > 0) " · %d:%02d".format(v.durationMs / 60_000, v.durationMs / 1000 % 60) else ""
         VersionRow(v.title, listOf(v.detail, v.quality).filter(String::isNotBlank).joinToString(" · ") + len, v.choice == playing, v.choice == pinned) {
             Playback.useVersion(t, v.choice); onDismiss()
         }
         Divider(Modifier.padding(start = 4.dp))
     }
-    if (list.size <= 1) Txt("No other versions found on your sources.", Modifier.padding(top = 8.dp), style = Type.caption, color = c.muted)
 }
 
 private fun nowSource(t: Track, playing: String?): String = when {
@@ -84,5 +88,14 @@ private fun VersionRow(title: String, detail: String, playing: Boolean?, chosen:
         }
         if (playing == true) Icon(Ic.Volume, "Playing", Modifier.padding(start = 8.dp), size = 18.dp, tint = WT.c.accent)
         Row(Modifier.padding(start = 10.dp).size(24.dp), verticalAlignment = Alignment.CenterVertically) { CheckMark(chosen) }
+    }
+}
+
+/** A source's name over its versions, with a small spinner while it's still searching. */
+@Composable
+private fun SourceHeader(name: String, loading: Boolean) {
+    Row(Modifier.padding(top = 14.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Txt(name.uppercase(), style = Type.overline, color = WT.c.accent)
+        if (loading) Spinner(Modifier.padding(start = 8.dp), size = 12.dp, color = WT.c.muted)
     }
 }

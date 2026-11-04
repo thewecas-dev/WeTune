@@ -45,6 +45,40 @@ fun SourcesList() {
             "Add-ons are servers run by other people: they can be slow to wake, go offline, or stop working at any time.",
         Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
     )
+    SourceTester()
+}
+
+/** Settings → Sources → Test: checks every source with one song, so you can see which ones work and what they give. */
+@Composable
+private fun SourceTester() {
+    val now = com.wetune.Playback.current
+    var query by remember { mutableStateOf(now?.let { "${it.title} ${it.artist.substringBefore(',')}" } ?: "Blinding Lights The Weeknd") }
+    var busy by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf<List<com.wetune.sources.SourceTest.Result>?>(null) }
+    Group("Test sources") {
+        Column(Modifier.padding(16.dp)) {
+            Txt("Searches every source for one song, then checks the top result really streams.", style = Type.caption, color = WT.c.muted)
+            Field(query, { query = it }, "Song and artist", Modifier.fillMaxWidth().padding(top = 10.dp), onClear = { query = "" })
+            Btn(if (busy) "Testing… (sleeping servers can take a minute)" else "Run test", {
+                if (busy || query.isBlank()) return@Btn
+                busy = true; results = null
+                io { try { results = com.wetune.sources.SourceTest.run(query.trim()) } finally { busy = false } }
+            }, Modifier.fillMaxWidth().padding(top = 10.dp), enabled = !busy)
+        }
+        results?.forEach { r ->
+            Divider(Modifier.padding(start = 16.dp))
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.Top) {
+                Txt(if (r.ok) "✓" else "✕", Modifier.width(24.dp), style = Type.bodyStrong, color = if (r.ok) WT.c.accent else WT.c.danger)
+                Column(Modifier.weight(1f)) {
+                    Txt(r.source, style = Type.bodyStrong, maxLines = 1)
+                    r.quality?.let { Txt(it, style = Type.caption, color = WT.c.text) }
+                    r.found?.let { Txt(it, style = Type.caption, color = WT.c.muted, maxLines = 1) }
+                    r.problem?.let { Txt(it, style = Type.caption, color = WT.c.danger, maxLines = 3) }
+                    if (r.searchMs > 0) Txt("Search %.1f s".format(r.searchMs / 1000f) + if (r.streamMs > 0) " · stream %.1f s".format(r.streamMs / 1000f) else "", style = Type.caption, color = WT.c.muted)
+                }
+            }
+        }
+    }
 }
 
 @Composable

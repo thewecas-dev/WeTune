@@ -69,9 +69,16 @@ fun subtitleArtist(subtitle: String): String = subtitle.split(" • ").map { it.
     it.isNotEmpty() && it !in LABELS && !YEAR.matches(it) && !DURATION.matches(it) && !STAT.matches(it)
 }.orEmpty()
 
-private fun artistOf(runs: List<JSONObject>, segs: List<String> = segments(runs)): String {
+/**
+ * All of a song's artists. YouTube links only some of them to artist pages ("Sachin-Jigar, Ed Sheeran, Arijit Singh
+ * & Madhubanti Bagchi" links two), so the whole artist part of the line is used — the " • " segment holding the first
+ * linked artist — with "&" turned into a comma.
+ */
+fun artistOf(runs: List<JSONObject>, segs: List<String> = segments(runs)): String {
     val linked = runs.filter { pageType(it) == "MUSIC_PAGE_TYPE_ARTIST" }.map { it.optString("text") }
-    return if (linked.isNotEmpty()) linked.joinToString(", ") else subtitleArtist(segs.joinToString(" • "))
+    if (linked.isEmpty()) return subtitleArtist(segs.joinToString(" • "))
+    val segment = segs.firstOrNull { linked.first() in it } ?: return linked.joinToString(", ")
+    return segment.split(", ", " & ").map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString(", ")
 }
 
 private fun albumOf(runs: List<JSONObject>) =

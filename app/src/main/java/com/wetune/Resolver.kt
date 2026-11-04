@@ -179,50 +179,49 @@ object Resolver {
     /** One version of a song the user can switch to. */
     data class Version(val choice: String, val source: String, val title: String, val detail: String, val quality: String, val durationMs: Long)
 
-    // versions already looked up, per song (and per source setup, so changing the order or add-ons looks again)
-    private val versionCache = ConcurrentHashMap<String, Future<List<Version>>>()
-    private fun versionKey(t: com.wetune.sources.Track) = t.id + "|" + order().joinToString(",") + "|" + Settings.saavnOn
+    /** One source's versions of a song, arriving on its own. */
+    class SourceVersions(val key: String, val name: String, val future: Future<List<Version>>)
 
-    /** The versions of [t] if they've already been fetched (instant), else null. */
-    fun cachedVersions(t: com.wetune.sources.Track): List<Version>? =
-        versionCache[versionKey(t)]?.takeIf { it.isDone }?.let { runCatching { it.get() }.getOrNull() }
+    // per song: each source's lookup, kept for the session (a source that found nothing is asked again next time)
+    private val versionCache = ConcurrentHashMap<String, ConcurrentHashMap<String, SourceVersions>>()
 
     /** Starts looking up [t]'s versions in the background (no audio), so Audio options opens with them ready. */
-    fun prefetchVersions(t: com.wetune.sources.Track) { if (t.source == "yt") versionFuture(t) }
+    fun prefetchVersions(t: com.wetune.sources.Track) { if (t.source == "yt") versionSources(t) }
 
-    private fun versionFuture(t: com.wetune.sources.Track): Future<List<Version>> {
+    /**
+     * Each source's lookup for [t], in the user's order — already running or done, so the Audio sheet can show every
+     * source's results as soon as that source answers. The YouTube original is always last (see [original]).
+     */
+    fun versionSources(t: com.wetune.sources.Track): List<SourceVersions> {
         if (versionCache.size > 150) versionCache.clear() // shortcut: drop-all instead of LRU; fine at this size
-        val key = versionKey(t)
-        // a lookup that found nothing (offline, servers asleep) isn't kept, so the next open tries again
-        return versionCache.computeIfAbsent(key) { worker.submit<List<Version>> { findVersions(t).also { if (it.size <= 1) versionCache.remove(key) } } }
-    }
-
-    /** Blocking. Every version of a YouTube song (kept for the session): the original, JioSaavn's and each add-on's results. */
-    fun versions(t: com.wetune.sources.Track): List<Version> = runCatching { versionFuture(t).get() }.getOrElse {
-        versionCache.remove(versionKey(t)); throw it
-    }
-
-    private fun findVersions(t: com.wetune.sources.Track): List<Version> {
+        val perSong = versionCache.getOrPut(t.id) { ConcurrentHashMap() }
         val q = SourceMatch.queries(t.title, t.artist).first()
-        val saavn = if (Settings.saavnOn) worker.submit<List<Version>> {
-            runCatching { JioSaavn.search(q).take(5) }.getOrDefault(emptyList()).map {
-                Version("saavn|" + it.ref, "JioSaavn", it.title, listOf(it.artist, it.album).filter(String::isNotBlank).joinToString(" · "),
-                    if (JioSaavn.has320(it.ref)) "AAC · 320 kbps" else "AAC · 160 kbps", it.durationMs)
+        fun keep(key: String, name: String, fetch: () -> List<Version>): SourceVersions {
+            val old = perSong[key]
+            val stale = old != null && old.future.isDone && runCatching { old.future.get().isEmpty() }.getOrDefault(true)
+            if (old != null && !stale) return old
+            return SourceVersions(key, name, worker.submit<List<Version>> { fetch() }).also { perSong[key] = it }
+        }
+        return order().mapNotNull { s ->
+            if (s == "saavn") keep("saavn", "JioSaavn") {
+                runCatching { JioSaavn.search(q).take(5) }.getOrDefault(emptyList()).map {
+                    Version("saavn|" + it.ref, "JioSaavn", it.title, listOf(it.artist, it.album).filter(String::isNotBlank).joinToString(" · "),
+                        if (JioSaavn.has320(it.ref)) "AAC · 320 kbps" else "AAC · 160 kbps", it.durationMs)
+                }
             }
-        } else null
-        val addons = Addons.enabled.map { a ->
-            worker.submit<List<Version>> {
-                runCatching { Addons.search(a, q).take(5) }.getOrDefault(emptyList()).map {
-                    Version("addon|" + it.ref, a.name, it.title, listOf(it.artist, it.album).filter(String::isNotBlank).joinToString(" · "),
-                        Addons.qualityOf(it.ref) ?: "Lossless", it.durationMs)
+            else Addons.enabled.firstOrNull { it.id == s }?.let { a ->
+                keep(a.id, a.name) {
+                    runCatching { Addons.search(a, q).take(5) }.getOrDefault(emptyList()).map {
+                        Version("addon|" + it.ref, a.name, it.title, listOf(it.artist, it.album).filter(String::isNotBlank).joinToString(" · "),
+                            Addons.qualityOf(it.ref) ?: "Lossless", it.durationMs)
+                    }
                 }
             }
         }
-        val original = Version("yt", "YouTube", t.title, t.artist, "Opus · up to 160 kbps", t.durationMs)
-        // in the user's order, YouTube last
-        val byId = addons.zip(Addons.enabled).associate { (f, a) -> a.id to f }
-        return order().flatMap { s -> runCatching { (if (s == "saavn") saavn else byId[s])?.get(40, java.util.concurrent.TimeUnit.SECONDS) }.getOrNull().orEmpty() } + original
     }
+
+    /** The YouTube original of a song, as a version. */
+    fun original(t: com.wetune.sources.Track) = Version("yt", "YouTube", t.title, t.artist, "Opus · up to 160 kbps", t.durationMs)
 
     /** Called with a YouTube id once a better copy is found in the background (the player may switch to it). */
     var onUpgrade: ((ytRef: String) -> Unit)? = null
