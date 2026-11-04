@@ -670,8 +670,8 @@ private fun InlineSung(line: Lyrics.Line, shown: String, pos: Long, style: andro
 private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?) {
     val i = currentLine(lines, previewMs ?: ui.pos, Lyrics.offset(ui.t.id))
     fun text(k: Int) = lines.getOrNull(k)?.text?.takeIf { it.isNotBlank() }?.let { if (Settings.romanInline) romanize(it) ?: it else it }
-    val dim = Type.body.copy(fontSize = 17.sp, lineHeight = 23.sp, textAlign = TextAlign.Center)
-    val main = Type.body.copy(fontSize = 21.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+    val dim = Type.body.copy(fontSize = 17.sp, lineHeight = 27.sp, textAlign = TextAlign.Center)
+    val main = Type.body.copy(fontSize = 21.sp, lineHeight = 31.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
     AnimatedContent(
         i, Modifier.fillMaxWidth().padding(top = 6.dp).pressable(scale = 0.98f) { ui.toggle("lyrics") },
         transitionSpec = {
@@ -684,9 +684,9 @@ private fun StackLines(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: Long?)
             Txt(text(k - 1).orEmpty(), Modifier.fillMaxWidth(), style = dim, color = Color.White.copy(alpha = 0.4f), maxLines = 1)
             val cur = text(k); val sung = lines.getOrNull(k)
             if (cur != null && sung != null && Settings.inlineWords && previewMs == null)
-                InlineSung(sung, cur, ui.pos + Lyrics.offset(ui.t.id), main, Modifier.fillMaxWidth().padding(vertical = 2.dp))
-            else if (cur != null) Txt(cur, Modifier.fillMaxWidth().padding(vertical = 2.dp), style = main, color = Color.White, maxLines = 2)
-            else Box(Modifier.fillMaxWidth().padding(vertical = 2.dp), Alignment.Center) { MusicBreak() }
+                InlineSung(sung, cur, ui.pos + Lyrics.offset(ui.t.id), main, Modifier.fillMaxWidth().padding(vertical = 4.dp))
+            else if (cur != null) Txt(cur, Modifier.fillMaxWidth().padding(vertical = 4.dp), style = main, color = Color.White, maxLines = 2)
+            else Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), Alignment.Center) { MusicBreak() }
             Txt(text(k + 1).orEmpty(), Modifier.fillMaxWidth(), style = dim, color = Color.White.copy(alpha = 0.4f), maxLines = 1)
         }
     }
