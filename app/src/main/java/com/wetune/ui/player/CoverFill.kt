@@ -89,7 +89,8 @@ private fun rememberCover(url: String?): ImageBitmap? {
  * with the space around it filled per [Settings.npFill]. Blur mode keeps the earlier look (8% side crop).
  */
 @Composable
-fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, t: Track, sideScale: Float = SideScale, onCoverBottom: (Dp) -> Unit = {}, coverShift: () -> Float = { 0f }) {
+fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, t: Track, sideScale: Float = SideScale, space: CoverSpace = CoverSpace(clearTop, split, 0.dp, 2f), onCoverBottom: (Dp) -> Unit = {}, coverShift: () -> Float = { 0f }) {
+    // [space]: where the cover may go and how the gaps around it are shared (see [CoverSpace])
     // [onCoverBottom]: where the cover ends, so the lyrics can sit midway between it and the title
     // [sideScale]: how much wider than the screen the cover is drawn (1.14 trims ~6% per side; 1 = the whole cover)
     // [clearTop]: bottom of the grabber and "Playing from" header; the cover always starts below it
@@ -99,19 +100,18 @@ fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: F
     val img = rememberCover(t.art)
 
     when {
-        mode == "blur" || img == null -> BlurBackdrop(t, w, split, clearTop, coverAlpha, sideScale, onCoverBottom)
+        mode == "blur" || img == null -> BlurBackdrop(t, w, space, coverAlpha, sideScale, onCoverBottom)
         else -> {
             // Whole cover, full width; wide thumbnails stay whole too. Sits right on top of the controls.
             // Placed to never overlap the top buttons or the title: if the full-width cover fits between them it sits
             // on the title and the stretch fills above; if not, it shrinks to fill that space exactly (no top stretch)
             // and blurred cover fills the slim sides.
             val ratio = img.height.toFloat() / img.width
-            val topLimit = clearTop
-            val room = (split - topLimit).coerceAtLeast(120.dp)
+            val room = space.room
             val fits = w * sideScale * ratio <= room
             val coverW = if (fits) w * sideScale else room / ratio
             val coverH = coverW * ratio
-            val top = topLimit // right under the header; the stretch fills the space below it
+            val top = space.topFor(coverH) // evenly spaced between the header, the lyrics and the title
             androidx.compose.runtime.SideEffect { onCoverBottom(top + coverH) }
             if (!fits) Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = coverAlpha }.blur(60.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.9f)
             if (mode == "mirror") Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = coverAlpha }.blur(14.dp, BlurredEdgeTreatment.Rectangle)) {
@@ -254,10 +254,10 @@ private fun DrawScope.extend(img: ImageBitmap, top: Float, h: Float, mirror: Boo
 
 /** The earlier look: cover 14% wider than the screen (6% cropped per side, same as the others) over a zoomed blur of itself. */
 @Composable
-private fun BlurBackdrop(t: Track, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, sideScale: Float, onCoverBottom: (Dp) -> Unit) {
+private fun BlurBackdrop(t: Track, w: Dp, space: CoverSpace, coverAlpha: Float, sideScale: Float, onCoverBottom: (Dp) -> Unit) {
     // on short screens the cover shrinks so it never runs under the title, nor up under the header
-    val size = minOf(w * sideScale, (split - clearTop) / 0.95f).coerceAtLeast(120.dp)
-    val top = clearTop // right under the header
+    val size = minOf(w * sideScale, space.room).coerceAtLeast(120.dp)
+    val top = space.topFor(size)
     androidx.compose.runtime.SideEffect { onCoverBottom(top + size) }
     val coverMod = Modifier.offset(y = top).fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally, unbounded = true).requiredSize(size)
     Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.6f; scaleY = 1.6f }.blur(70.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.85f)
@@ -306,4 +306,17 @@ private fun edgeLuminance(img: ImageBitmap): Pair<Float, Float> {
         return if (values.isEmpty()) 0f else values.sorted()[(values.size * 0.85f).toInt().coerceAtMost(values.size - 1)]
     }
     return lum(0) to lum(b.height - band)
+}
+
+/**
+ * The band the cover lives in, from under the header ([top]) to the title ([bottom]), with [reserve] kept for the
+ * lyrics. The free height is shared out as [gaps] equal gaps: header → cover → lyrics → title (3), or header → cover
+ * → title (2) when there are no lyrics; in between while the lyrics appear or go.
+ */
+data class CoverSpace(val top: Dp, val bottom: Dp, val reserve: Dp, val gaps: Float) {
+    private val minGap = 10.dp
+    /** The most height the cover may take. */
+    val room: Dp get() = (bottom - top - reserve - minGap * gaps).coerceAtLeast(120.dp)
+    /** Where a cover [coverH] tall starts so all the gaps come out equal. */
+    fun topFor(coverH: Dp): Dp = top + ((bottom - top - coverH - reserve) / gaps).coerceAtLeast(0.dp)
 }

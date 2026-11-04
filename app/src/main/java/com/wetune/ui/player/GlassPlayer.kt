@@ -152,6 +152,12 @@ fun GlassPlayer(ui: PlayerUi) {
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val controlsH = blockH + 124.dp + navBottom + 8.dp // 124 dp for the lyrics and the gaps around them, whatever the navigation bar takes
         val titleTop = maxHeight - blockH - navBottom - 8.dp // top of the controls block
+        // header → cover → lyrics → title, all gaps equal; the lyrics get a fixed reserve for their style, so a line that
+        // wraps doesn't move the cover
+        val lyricsOn = hasLyric && Settings.showInline
+        val fullReserve = if (Settings.inlineStyle == "stack") 112.dp else 40.dp
+        val reserve by animateDpAsState(if (lyricsOn) fullReserve else 0.dp, tween(450), label = "reserve")
+        val space = CoverSpace(clearTop, titleTop, reserve, 2f + (reserve / fullReserve).coerceIn(0f, 1f))
         // with lyrics showing the cover has less room, so Bleeding edge shows it whole (no side crop); without, the usual slight trim
         val sideScale by animateFloatAsState(if (hasLyric && Settings.showInline) 1f else SideScale, tween(450), label = "crop")
         val split = maxHeight - controlsH + lower // where the cover area ends (the controls block itself stays fixed)
@@ -159,7 +165,7 @@ fun GlassPlayer(ui: PlayerUi) {
         // A new song crossfades in; dragging sideways moves only the cover (not the background) to show the skip coming.
         Crossfade(ui.t, Modifier.blur(paneBlur, BlurredEdgeTreatment.Rectangle), animationSpec = tween(650), label = "song") { t ->
             Box(Modifier.fillMaxSize()) {
-                if (Settings.npStyle == "bleed") CoverBackdrop(ui.pal, w, split, clearTop, coverAlpha, t, sideScale, onCoverBottom = { if (t.id == ui.t.id) coverBottom = it }) { swipe.value * 0.5f }
+                if (Settings.npStyle == "bleed") CoverBackdrop(ui.pal, w, split, clearTop, coverAlpha, t, sideScale, space, onCoverBottom = { if (t.id == ui.t.id) coverBottom = it }) { swipe.value * 0.5f }
                 else StyledBackdrop(Settings.npStyle, ui.pal, t, split)
             }
         }
@@ -178,7 +184,7 @@ fun GlassPlayer(ui: PlayerUi) {
         if (open) ImmersivePane(ui, onQuality = { audioOptions = true }) { seekDrag = it } else Box(Modifier.fillMaxSize()) {
 
         // Top 60%: the corner buttons. On the cover: swipe to skip, long-press for a menu.
-        Column(Modifier.fillMaxWidth().height(split).padding(start = 16.dp, end = 16.dp, top = headerTop)) {
+        Column(Modifier.fillMaxWidth().height(titleTop).padding(start = 16.dp, end = 16.dp, top = headerTop)) {
           // the header (grabber + Playing from) is measured so the cover never starts underneath it; it can be hidden in Settings
           if (Settings.npHeader) Column(Modifier.onSizeChanged { headerH = with(density) { it.height.toDp() } }) {
             // grabber: tap to close, or drag down (the whole player follows a downward drag)
@@ -216,12 +222,18 @@ fun GlassPlayer(ui: PlayerUi) {
                         }
                         .pointerInput(Unit) { detectTapGestures(onLongPress = { coverMenu = true }) },
             ) {
-                // classic, strips and disc frame the cover here (Bleeding edge draws it as part of the background)
-                if (Settings.npStyle != "bleed") Crossfade(ui.t, animationSpec = tween(500), label = "cover") { StyledCover(Settings.npStyle, it, { swipe.value * 0.5f }, onPlaced = { cc -> frame?.takeIf { f -> f.isAttached && cc.isAttached }?.let { f -> coverBottom = with(density) { f.localPositionOf(cc, androidx.compose.ui.geometry.Offset(0f, cc.size.height.toFloat())).y.toDp() } } }) }
                 Box(Modifier.align(Alignment.Center)) { CoverMenu(ui, coverMenu) { coverMenu = false } }
             }
         }
 
+        // classic, strips and disc: the framed cover, evenly spaced like Bleeding edge's (which draws it in the background)
+        if (Settings.npStyle != "bleed") {
+            val base = when (Settings.npStyle) { "disc" -> w * 0.74f; "strips" -> w * 0.8f; else -> w - 48.dp }
+            val size = minOf(base, space.room).coerceAtLeast(120.dp)
+            val top = space.topFor(size)
+            androidx.compose.runtime.SideEffect { coverBottom = top + size }
+            Crossfade(ui.t, Modifier.offset(y = top).fillMaxWidth(), animationSpec = tween(500), label = "cover") { StyledCover(Settings.npStyle, it, { swipe.value * 0.5f }, size) }
+        }
         // Lyrics (one line or three): centered between where the cover ends and the title; they open and close inside this
         // space, so nothing else moves
         val lyricsFrom = coverBottom.coerceIn(clearTop, titleTop - 60.dp)
@@ -436,24 +448,24 @@ private fun LyricLineContent(ui: PlayerUi, lines: List<Lyrics.Line>, previewMs: 
             when (it) { androidx.compose.animation.EnterExitState.PreEnter -> -1f; androidx.compose.animation.EnterExitState.Visible -> 0f; androidx.compose.animation.EnterExitState.PostExit -> 1f }
         }
         Row(
-            Modifier.graphicsLayer {
+            Modifier.fillMaxWidth().graphicsLayer {
                 rotationX = 80f * roll // top tips back as it rises, bottom tips back as it arrives
                 translationY = -roll * size.height * 0.6f
                 cameraDistance = 10f * density
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
             },
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center, // centered, like the three-line style
         ) {
             if (line == "") return@Row Spacer(Modifier.height(22.dp))
             // optional: the inline line in Latin letters for Tamil, Hindi, Telugu… (the full lyrics panel is unchanged)
         val shownLine = line?.let { if (Settings.romanInline) romanize(it) ?: it else it }
         val sung = lines.getOrNull(i)?.takeIf { it.text.trim() == line?.trim() } // this line's timing (not for one that's leaving)
-        val inlineStyle = Type.body.copy(fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold)
+        val inlineStyle = Type.body.copy(fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
         if (shownLine != null && sung != null && Settings.inlineWords && previewMs == null)
             InlineSung(sung, shownLine, ui.pos + Lyrics.offset(ui.t.id), inlineStyle, Modifier.weight(1f, fill = false))
         else if (shownLine != null) Txt(shownLine, Modifier.weight(1f, fill = false), style = inlineStyle, color = Color.White.copy(alpha = if (previewMs != null) 1f else 0.9f), maxLines = 2)
             else MusicBreak()
-            Icon(Ic.Chevron, null, Modifier.padding(start = 6.dp), size = 14.dp, tint = Color.White.copy(alpha = 0.7f))
         }
     }
 }
