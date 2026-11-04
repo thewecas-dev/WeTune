@@ -143,9 +143,9 @@ fun GlassPlayer(ui: PlayerUi) {
         if (lyricLines != null) hasLyric = lyricLines.isNotEmpty() && lyricLines.first().ms >= 0
         val lower by animateDpAsState(if (hasLyric && Settings.showInline) 0.dp else 56.dp, tween(450), label = "lower")
         // the controls block (title → bottom row) and, above it, a fixed space for the lyrics
-        val blockH = maxOf(310.dp, maxHeight * 0.36f)
+        val blockH = maxOf(270.dp, maxHeight * 0.3f)
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val controlsH = blockH + 110.dp + navBottom + 8.dp // 110 dp for the lyrics, whatever the navigation bar takes
+        val controlsH = blockH + 124.dp + navBottom + 8.dp // 124 dp for the lyrics and the gaps around them, whatever the navigation bar takes
         // with lyrics showing the cover has less room, so Bleeding edge shows it whole (no side crop); without, the usual slight trim
         val sideScale by animateFloatAsState(if (hasLyric && Settings.showInline) 1f else SideScale, tween(450), label = "crop")
         val split = maxHeight - controlsH + lower // where the cover area ends (the controls block itself stays fixed)
@@ -220,7 +220,7 @@ fun GlassPlayer(ui: PlayerUi) {
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(controlsH).navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 8.dp)) {
             // lyrics (one line or three) centered in the free space between where the blur begins and the title;
             // they open and close inside this space, so nothing below them moves
-            Box(Modifier.weight(1f).fillMaxWidth().padding(bottom = 12.dp), Alignment.Center) { LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() }) }
+            Box(Modifier.weight(1f).fillMaxWidth().padding(top = 10.dp, bottom = 16.dp), Alignment.Center) { LyricLine(ui, seekDrag?.let { (it * ui.duration).toLong() }) } // gaps to the cover above and the title below
             // the controls: a fixed-height block pinned to the bottom, rows spaced evenly inside it
             Column(Modifier.fillMaxWidth().height(blockH)) {
                 TitleRow(ui) { pipeline = true }
