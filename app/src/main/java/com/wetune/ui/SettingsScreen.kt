@@ -294,7 +294,7 @@ private fun BackupPage() {
 @Composable
 private fun AboutPage() {
     Group {
-        SettingRow("WeTune", "Version 0.4.0")
+        SettingRow("WeTune", "Version 0.5.0")
         Divider(Modifier.padding(start = 16.dp))
         SettingRow("Sources", "YouTube Music, JioSaavn, Subsonic, this device")
         Divider(Modifier.padding(start = 16.dp))

@@ -15,8 +15,8 @@ android {
         applicationId = "com.wetune"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
     }
     // release key lives outside the project (~/.wetune); its path and password are in local.properties (not committed)
     signingConfigs {
