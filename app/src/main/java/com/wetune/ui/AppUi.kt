@@ -71,6 +71,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wetune.Playback
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.hazeEffect
@@ -110,15 +115,33 @@ fun AppUi() {
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 alpha = if (WT.c.dark) 0.5f else 0.35f,
             )
-            when (val s = stack.last()) {
-                Screen.Home -> HomeScreen(open)
-                Screen.Search -> SearchScreen(open)
-                Screen.Library -> LibraryScreen(open)
-                Screen.Settings -> SettingsScreen(open)
-                Screen.Login -> {} // drawn below, outside the glass layer
-                is Screen.SettingsPage -> SettingsPageScreen(s.id, open, back)
-                is Screen.Yt -> YtPageScreen(s.card, open, back)
-                is Screen.LocalPlaylist -> LocalPlaylistScreen(s.name, back)
+            // Pages slide in from the right going deeper and back out going back; tab switches crossfade.
+            AnimatedContent(
+                stack.size to stack.last(),
+                transitionSpec = {
+                    val depth = targetState.first - initialState.first
+                    val ease = spring<IntOffset>(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)
+                    when {
+                        depth > 0 -> (slideInHorizontally(ease) { it / 4 } + fadeIn(tween(220))) togetherWith
+                            (slideOutHorizontally(ease) { -it / 10 } + fadeOut(tween(160)))
+                        depth < 0 -> (slideInHorizontally(ease) { -it / 10 } + fadeIn(tween(220))) togetherWith
+                            (slideOutHorizontally(ease) { it / 4 } + fadeOut(tween(160)))
+                        else -> fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120))
+                    }.using(SizeTransform(clip = false))
+                },
+                contentKey = { it.second },
+                label = "screen",
+            ) { (_, s) ->
+                when (s) {
+                    Screen.Home -> HomeScreen(open)
+                    Screen.Search -> SearchScreen(open)
+                    Screen.Library -> LibraryScreen(open)
+                    Screen.Settings -> SettingsScreen(open)
+                    Screen.Login -> Box(Modifier.fillMaxSize()) // drawn below, outside the glass layer
+                    is Screen.SettingsPage -> SettingsPageScreen(s.id, open, back)
+                    is Screen.Yt -> YtPageScreen(s.card, open, back)
+                    is Screen.LocalPlaylist -> LocalPlaylistScreen(s.name, back)
+                }
             }
         }
         // A soft fade behind the status bar (no hard edge) so scrolled content doesn't clash with the clock and icons.
@@ -129,7 +152,12 @@ fun AppUi() {
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (Playback.current != null) MiniPlayer(haze, style) { playerOpen = true }
+            // Rises in above the nav; the nav itself never moves.
+            AnimatedVisibility(
+                Playback.current != null,
+                enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(tween(200)),
+                exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(160)),
+            ) { MiniPlayer(haze, style) { playerOpen = true } }
             NavBar(haze, style, stack.first()) { tab ->
                 stack.clear()
                 stack.add(tab)
@@ -213,14 +241,16 @@ private fun NavBar(haze: HazeState, style: HazeStyle, root: Screen, onTab: (Scre
         ) {
             tabs.forEach { tab ->
                 val selected = root == tab.screen
+                val bg by animateColorAsState(if (selected) pillBg else pillBg.copy(alpha = 0f), tween(220), label = "tab")
+                val fg by animateColorAsState(if (selected) pillFg else idle, tween(220), label = "tabFg")
                 Row(
-                    Modifier.height(54.dp).clip(CircleShape).background(if (selected) pillBg else Color.Transparent)
+                    Modifier.height(54.dp).clip(CircleShape).background(bg)
                         .semantics { this.selected = selected; contentDescription = tab.label }
                         .pressable(scale = 0.92f, role = Role.Tab) { onTab(tab.screen) }
                         .padding(horizontal = if (selected) 20.dp else 17.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(tab.icon, null, size = 22.dp, tint = if (selected) pillFg else idle)
+                    Icon(tab.icon, null, size = 22.dp, tint = fg)
                     if (selected) Txt(tab.label, Modifier.padding(start = 8.dp), style = Type.label.copy(fontSize = 15.sp), color = pillFg, weight = FontWeight.SemiBold, maxLines = 1)
                 }
             }

@@ -93,13 +93,15 @@ fun <T> Load(
         result = null
         result = runCatching { withContext(Dispatchers.IO) { load() } }
     }
-    val r = result
-    when {
-        r == null -> placeholder()
-        r.isFailure -> EmptyState(Ic.Info, "Couldn't load this", r.exceptionOrNull()?.message ?: "Something went wrong") {
-            Btn("Try again", { attempt++ }, kind = BtnKind.Secondary, icon = Ic.Refresh)
+    // Skeleton → content (or error) fades instead of popping.
+    androidx.compose.animation.Crossfade(result, animationSpec = androidx.compose.animation.core.tween(220), label = "load") { r ->
+        when {
+            r == null -> placeholder()
+            r.isFailure -> EmptyState(Ic.Info, "Couldn't load this", r.exceptionOrNull()?.message ?: "Something went wrong") {
+                Btn("Try again", { attempt++ }, kind = BtnKind.Secondary, icon = Ic.Refresh)
+            }
+            else -> content(r.getOrThrow()) { attempt++ }
         }
-        else -> content(r.getOrThrow()) { attempt++ }
     }
 }
 

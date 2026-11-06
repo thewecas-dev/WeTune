@@ -15,12 +15,15 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
+import coil3.request.crossfade
 import java.io.File
 
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
         ctx = this
+        // Covers fade in instead of popping.
+        coil3.SingletonImageLoader.setSafe { coil3.ImageLoader.Builder(it).crossfade(200).build() }
         NewPipe.init(NewPipeDownloader)
         InnerTube.cookieProvider = { Settings.cookie }
         InnerTube.onAuthError = { Sync.expired = true }
