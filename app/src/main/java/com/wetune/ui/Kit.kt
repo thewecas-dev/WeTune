@@ -39,6 +39,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.gestures.draggable
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
@@ -229,9 +233,10 @@ fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, kind: 
 @Composable
 fun Pill(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null) {
     val c = WT.c
-    val fg = if (selected) c.bg else c.text
+    val fg by animateColorAsState(if (selected) c.bg else c.text, tween(200), label = "pillFg")
+    val fill by animateColorAsState(if (selected) c.text else c.text.copy(alpha = if (c.dark) 0.08f else 0.05f), tween(200), label = "pillBg")
     Row(
-        modifier.heightIn(min = 36.dp).then(if (selected) Modifier.clip(PillShape).background(c.text) else Modifier.glassChip(PillShape))
+        modifier.heightIn(min = 36.dp).clip(PillShape).background(fill)
             .semantics { this.selected = selected }
             .pressable(scale = 0.95f, onClick = onClick).padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -244,23 +249,16 @@ fun Pill(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifie
     }
 }
 
-/** iOS-style segmented control. */
+/** Pick one of a few options: chips that wrap onto the next line, so a label is never cut off on big text or narrow screens. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun Segmented(options: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
-    val c = WT.c
-    Row(modifier.fillMaxWidth().glassChip(PillShape).padding(3.dp)) {
-        options.forEach { (key, label) ->
-            val on = key == selected
-            Txt(
-                label,
-                Modifier.weight(1f).clip(PillShape)
-                    .then(if (on) Modifier.background(if (c.dark) Color(0xFF2A2A2F) else Color.White).border(1.dp, rimBrush(), PillShape) else Modifier)
-                    .semantics { this.selected = on }
-                    .pressable(scale = 0.97f, role = Role.Tab) { onSelect(key) }.padding(vertical = 9.dp),
-                style = Type.label, align = TextAlign.Center, maxLines = 1,
-                weight = if (on) FontWeight.SemiBold else FontWeight.Medium,
-            )
-        }
+    androidx.compose.foundation.layout.FlowRow(
+        modifier.fillMaxWidth().semantics { },
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEach { (key, label) -> Pill(label, key == selected, { onSelect(key) }) }
     }
 }
 
@@ -398,25 +396,60 @@ fun Divider(modifier: Modifier = Modifier) {
 
 /** Dropdown anchored to the top-end of its parent. With a [title] it gets a header with a visible close (✕) button. */
 @Composable
-fun Menu(open: Boolean, onDismiss: () -> Unit, title: String? = null, content: @Composable ColumnScope.() -> Unit) {
+fun Menu(open: Boolean, onDismiss: () -> Unit, title: String? = null, header: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     if (!open) return
     val c = WT.c
-    Popup(alignment = Alignment.TopEnd, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
-        val visible = remember { MutableTransitionState(false).apply { targetState = true } }
-        AnimatedVisibility(visible, enter = fadeIn(tween(120)) + scaleIn(tween(160), 0.85f, TransformOrigin(1f, 0f))) {
-            val shape = RoundedCornerShape(28.dp)
-            CompositionLocalProvider(LocalContentColor provides c.text) {
-                Column(
-                    Modifier.padding(8.dp).widthIn(min = 230.dp, max = 290.dp).shadow(28.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
-                        .frost(shape).padding(8.dp),
-                ) {
-                    if (title != null) Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Txt(title.uppercase(), Modifier.weight(1f), style = Type.overline, color = c.muted, maxLines = 1)
-                        IconBtn(Ic.Close, "Close", onDismiss, size = 36.dp, iconSize = 18.dp, tint = c.muted)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val shown = remember { MutableTransitionState(false).apply { targetState = true } }
+    val dismiss = { shown.targetState = false } // slide out first; the sheet is removed once that finishes
+    androidx.compose.runtime.LaunchedEffect(shown.isIdle, shown.currentState) { if (shown.isIdle && !shown.currentState) onDismiss() }
+    val drag = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    androidx.compose.ui.window.Dialog(dismiss, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { dismiss() } }, Alignment.BottomCenter) {
+            AnimatedVisibility(
+                shown,
+                enter = androidx.compose.animation.slideInVertically(spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(tween(160)),
+                exit = androidx.compose.animation.slideOutVertically(tween(220)) { it } + androidx.compose.animation.fadeOut(tween(180)),
+            ) {
+                val shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+                CompositionLocalProvider(LocalContentColor provides c.text) {
+                    Column(
+                        Modifier.widthIn(max = 560.dp).fillMaxWidth()
+                            .offset { IntOffset(0, drag.value.roundToInt()) }
+                            .draggable(
+                                androidx.compose.foundation.gestures.rememberDraggableState { d -> scope.launch { drag.snapTo((drag.value + d).coerceAtLeast(0f)) } },
+                                androidx.compose.foundation.gestures.Orientation.Vertical,
+                                onDragStopped = { v -> if (drag.value > with(density) { 110.dp.toPx() } || v > 1800f) dismiss() else drag.animateTo(0f, spring(dampingRatio = 0.8f)) },
+                            )
+                            .frost(shape).pointerInput(Unit) { detectTapGestures { } } // taps on the sheet don't close it
+                            .navigationBarsPadding().padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+                    ) {
+                        // grabber: drag down (or tap outside) to close
+                        Box(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp), Alignment.Center) {
+                            Box(Modifier.size(36.dp, 4.dp).clip(CircleShape).background(c.muted.copy(alpha = 0.45f)))
+                        }
+                        if (header != null) {
+                            Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) { header() }
+                            Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp).height(1.dp).background(c.outline))
+                        }
+                        if (title != null) Txt(title.uppercase(), Modifier.padding(start = 14.dp, top = 4.dp, bottom = 4.dp), style = Type.overline, color = c.muted, maxLines = 1)
+                        Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) { content() }
                     }
-                    content()
                 }
             }
+        }
+    }
+}
+
+/** The song a menu acts on: cover, title, artist. */
+@Composable
+fun MenuTrackHeader(t: com.wetune.sources.Track) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Art(t.art, Modifier.size(52.dp), RoundedCornerShape(12.dp))
+        Column(Modifier.padding(start = 14.dp)) {
+            Txt(t.title, style = Type.bodyStrong, maxLines = 1)
+            Txt(t.artist, style = Type.caption, color = WT.c.muted, maxLines = 1)
         }
     }
 }

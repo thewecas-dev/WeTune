@@ -190,30 +190,35 @@ private fun AppearancePage() {
             align = when (Settings.lyricsAlign) { "center" -> androidx.compose.ui.text.style.TextAlign.Center; "end" -> androidx.compose.ui.text.style.TextAlign.End; else -> androidx.compose.ui.text.style.TextAlign.Start },
         )
     }
-    Group("Now Playing style") {
+    Group("Now Playing cover") {
         Column(Modifier.padding(12.dp)) {
-            Segmented(NowStyles, Settings.npStyle, { Settings.npStyle = it })
+            Segmented(CoverStyles, Settings.npCover, { Settings.npCover = it })
             Txt(
-                when (Settings.npStyle) {
-                    "classic" -> "The cover as a rounded card over a soft blur of its colors."
-                    "strips" -> "The cover as a card over its colors seen through ribbed glass."
-                    "disc" -> "A round cover; its colors blur across the top and fade into a deep tint."
-                    else -> "The cover runs edge to edge and its colors bleed out to fill the screen."
+                when (Settings.npCover) {
+                    "card" -> "The cover as a rounded card."
+                    "disc" -> "A round cover inside a thin ring that fills as the song plays."
+                    "strips" -> "The cover cut into five rounded columns at different heights, drifting gently while it plays."
+                    "vinyl" -> "The cover as a sleeve; the record slides out and spins while it plays."
+                    else -> "The cover runs edge to edge across the screen."
                 },
                 Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
             )
-            if (Settings.npStyle == "bleed") {
-                Txt("Around the cover", Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp), style = Type.label)
-                Segmented(FillModes, Settings.npFill, { Settings.npFill = it })
-                Txt(
-                    when (Settings.npFill) {
-                        "stretch" -> "The cover, trimmed slightly at the sides; its top and bottom edges stretch out to fill the screen."
-                        "mirror" -> "The cover, trimmed slightly at the sides, reflected softly above and below."
-                        else -> "A blurred, zoomed copy of the cover fills the screen."
-                    },
-                    Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
-                )
-            }
+        }
+    }
+    Group("Now Playing background") {
+        Column(Modifier.padding(12.dp)) {
+            Segmented(Backgrounds, Settings.npBackground, { Settings.npBackground = it })
+            Txt(
+                when (Settings.npBackground) {
+                    "stretch" -> "The cover's top and bottom edges stretch out to fill the screen. Behind a framed cover they soften into its colors."
+                    "mirror" -> "The cover reflected softly above and below. Behind a framed cover it softens into its colors."
+                    "blur" -> "A blurred, zoomed copy of the cover fills the screen."
+                    "fade" -> "The cover's colors glow across the top and fade into a deep tint."
+                    "ribbed" -> "The cover's colors seen through ribbed glass."
+                    else -> "Plain black, so the cover is the only color on screen."
+                },
+                Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
+            )
         }
     }
     Group("Display") {

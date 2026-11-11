@@ -42,6 +42,7 @@ import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.graphicsLayer
 import com.wetune.Library
 import com.wetune.Playback
 import com.wetune.Resolver
@@ -79,19 +80,28 @@ private fun greeting(): String = when (Calendar.getInstance().get(Calendar.HOUR_
     else -> "Late night"
 }
 
+/** The app's icon (its adaptive layers, cropped the way the launcher shows them). */
 @Composable
-private fun HomeHeader(open: (Screen) -> Unit, reload: (() -> Unit)?) {
+fun AppIcon(size: androidx.compose.ui.unit.Dp) {
+    Box(Modifier.size(size).clip(androidx.compose.foundation.shape.RoundedCornerShape(size * 0.3f)).graphicsLayer { scaleX = 1.5f; scaleY = 1.5f }) {
+        androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.wetune.R.drawable.ic_launcher_background), null, Modifier.fillMaxSize())
+        androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.wetune.R.drawable.ic_launcher_foreground), null, Modifier.fillMaxSize())
+    }
+}
+
+@Composable
+private fun HomeHeader(open: (Screen) -> Unit) {
     val account = Sync.account
-    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Txt(greeting(), style = Type.display, maxLines = 1)
-            Txt(account?.let { "Welcome back, ${it.name.substringBefore(' ')}" } ?: "Your music, all in one place", style = Type.body, color = WT.c.muted, maxLines = 1)
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 6.dp, bottom = 4.dp)) {
+        // app mark on the left, your account on the right
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AppIcon(34.dp)
+            Txt("WeTune", Modifier.weight(1f).padding(start = 10.dp), style = Type.headline, maxLines = 1)
+            if (account != null) Art(account.photo, Modifier.size(36.dp).pressable { open(Screen.SettingsPage("account")) }, CircleShape)
+            else IconBtn(Ic.Person, "Sign in", { open(Screen.SettingsPage("account")) })
         }
-        if (reload != null) IconBtn(Ic.Refresh, "Refresh", reload)
-        if (account != null) {
-            Art(account.photo, Modifier.size(40.dp).pressable { open(Screen.SettingsPage("account")) }, CircleShape)
-            Spacer(Modifier.width(8.dp))
-        } else IconBtn(Ic.Person, "Sign in", { open(Screen.SettingsPage("account")) })
+        Txt(greeting(), Modifier.padding(top = 18.dp), style = Type.display, maxLines = 1)
+        Txt(account?.let { "Welcome back, ${it.name.substringBefore(' ')}" } ?: "Your music, all in one place", style = Type.body, color = WT.c.muted, maxLines = 1)
     }
 }
 
@@ -117,33 +127,47 @@ private object HomeFeed {
 // section titles are list keys, so they must be unique
 private fun List<Section>.unique() = distinctBy { it.title.ifBlank { it.hashCode().toString() } }
 
-/** Loads once per app start (or per account); after that only the refresh button reloads it. */
+/** Fetches the first page of Home (the rest follows in the background) and keeps it for the session. */
+private suspend fun loadHome(account: String?): List<Section> {
+    val (first, token) = withContext(Dispatchers.IO) { YouTube.home() }
+    HomeFeed.account = account; HomeFeed.sections = first.unique()
+    com.wetune.appScope.launch { HomeFeed.loadMore(token, account) }
+    return first.unique()
+}
+
+/** Loads once per app start (or per account); after that, pull down to refresh. */
 @Composable
 fun HomeScreen(open: (Screen) -> Unit) {
     val account = Sync.account?.name
     val cached = HomeFeed.sections.takeIf { HomeFeed.account == account }
-    if (cached != null) return HomeList(cached, open) { HomeFeed.sections = null }
-    Load(account, {
-        val (first, token) = YouTube.home()
-        HomeFeed.account = account; HomeFeed.sections = first.unique()
-        com.wetune.appScope.launch { HomeFeed.loadMore(token, account) }
-        first.unique()
-    }, placeholder = {
-        Column(Modifier.padding(listPadding())) { HomeHeader(open, null); SkeletonCarousels() }
-    }) { sections, _ -> HomeList(sections, open) { HomeFeed.sections = null } }
+    if (cached != null) return HomeList(cached, open, account)
+    Load(account, { loadHome(account) }, placeholder = {
+        Column(Modifier.padding(listPadding())) { HomeHeader(open); SkeletonCarousels() }
+    }) { sections, _ -> HomeList(sections, open, account) }
 }
 
 @Composable
-private fun HomeList(sections: List<Section>, open: (Screen) -> Unit, reload: () -> Unit) {
+private fun HomeList(sections: List<Section>, open: (Screen) -> Unit, account: String?) {
     // which layout each section gets is worked out once per feed, not on every frame
     val arranged = remember(sections) { arrangeHome(sections) }
+    var refreshing by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // the current feed stays on screen while the new one loads, then swaps in
+    PullRefresh(refreshing, {
+        refreshing = true
+        scope.launch {
+            runCatching { loadHome(account) }.onFailure { com.wetune.toast(it.message ?: "Couldn't refresh") }
+            refreshing = false
+        }
+    }) {
     LazyColumn(state = HomeFeed.scroll, contentPadding = listPadding()) {
-        item(key = "header") { HomeHeader(open, reload) }
+        item(key = "header") { HomeHeader(open) }
         item(key = "expired") { ExpiredBanner() }
         if (sections.isEmpty()) item { EmptyState(Ic.Search, "Nothing to show yet", "Search for a song to get started.") }
         // each kind of section gets its own layout (quick picks rows, listen-again grid, charts, banners…);
         // keys + content types let scrolling reuse already-built sections of the same kind
         items(arranged, key = { it.first.title }, contentType = { it.second }) { (s, kind) -> HomeSection(s, kind) { c -> open(Screen.Yt(c)) } }
+    }
     }
 }
 
@@ -159,6 +183,7 @@ fun SearchScreen(open: (Screen) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var submitted by rememberSaveable { mutableStateOf("") }
     var source by rememberSaveable { mutableStateOf("yt") }
+    var kind by rememberSaveable { mutableStateOf("all") }
     val focus = LocalFocusManager.current
     fun submit(q: String) {
         query = q; submitted = q.trim(); focus.clearFocus()
@@ -181,6 +206,22 @@ fun SearchScreen(open: (Screen) -> Unit) {
             ), source,
         ) { source = it }
         if (submitted.isBlank()) return@Column RecentSearches(::submit)
+        // what kind of result: everything, or only songs / albums / artists / playlists / videos (YouTube Music)
+        if (source == "yt") Pills(
+            listOf(
+                Triple("all", "All", null), Triple("songs", "Songs", null), Triple("albums", "Albums", null),
+                Triple("artists", "Artists", null), Triple("playlists", "Playlists", null), Triple("videos", "Videos", null),
+            ), kind,
+        ) { kind = it }
+        val k = if (source == "yt") kind else "all"
+        if (k != "all") return@Column Load(Triple(source, submitted, k), { YouTube.searchKind(submitted, k) }, placeholder = { if (k in setOf("songs", "videos")) SkeletonRows() else SkeletonGrid() }) { found, _ ->
+            when {
+                k in setOf("songs", "videos") -> if (found.tracks.isEmpty()) EmptyState(Ic.Search, "No $k for \"$submitted\"") else LazyColumn(contentPadding = PaddingValues(bottom = BottomSpace)) {
+                    itemsIndexed(found.tracks, key = { i, t -> "$i:${t.id}" }) { _, t -> TrackRow(t, { Playback.play(listOf(t), from = "Search" to submitted) }) }
+                }
+                else -> CardGrid(found.cards.map { it.entry { c -> open(Screen.Yt(c)) } }, "No $k for \"$submitted\"")
+            }
+        }
         Load(source to submitted, {
             val tracks = Resolver.source(source).search(submitted)
             val cards = if (source == "yt") YouTube.searchCards(submitted) else emptyList()
@@ -315,27 +356,22 @@ private fun NewPlaylistSheet(canUseYouTube: Boolean, onDismiss: () -> Unit, onCr
 
 @Composable
 fun YtPageScreen(card: Card, open: (Screen) -> Unit, back: () -> Unit) {
+    val kind = when { card.browseId.startsWith("MPRE") -> PageKind.Album; card.isArtist() -> PageKind.Artist; else -> PageKind.Playlist }
     Load(card.browseId, { YouTube.page(card) }, placeholder = {
-        Column(Modifier.statusBarsPadding()) {
-            Row(Modifier.padding(horizontal = 4.dp)) { IconBtn(Ic.Back, "Back", back) }
-            SkeletonRows()
-        }
+        // the poster is known before the songs are: it shows at once, with placeholder rows under it
+        CollectionPage(kind, card.title, card.subtitle, card.art, emptyList(), back, loading = true)
     }) { page, reload ->
         val editable = card.browseId.startsWith("VLPL") && InnerTube.signedIn
-        TrackList(
-            page.tracks,
-            from = (when { card.browseId.startsWith("MPRE") -> "Album"; card.browseId.startsWith("VL") -> "Playlist"; card.isArtist() -> "Artist"; else -> "Collection" }) to card.title,
-            header = {
-                PageHeader(card.title, card.subtitle, card.art, card.isArtist(), back, onDelete = if (editable) {
-                    { io("Playlist deleted") { Sync.deletePlaylist(card.browseId) }; back() }
-                } else null, count = page.tracks.size.takeIf { !card.isArtist() })
-            },
+        CollectionPage(
+            kind, card.title, card.subtitle, card.art, page.tracks, back,
+            sections = page.sections, openCard = { open(Screen.Yt(it)) },
+            onDelete = if (editable) {
+                { io("Playlist deleted") { Sync.deletePlaylist(card.browseId) }; back() }
+            } else null,
             onRemove = if (editable) { t: Track ->
                 t.setVideoId?.let { sv -> io("Removed from playlist", then = reload) { Sync.removeFromPlaylist(card.browseId, t.ref, sv) } }
                 Unit
             } else null,
-            numbered = card.browseId.startsWith("MPRE"),
-            extra = { items(page.sections) { s -> SectionView(s, { open(Screen.Yt(it)) }) } },
         )
     }
 }
@@ -343,10 +379,9 @@ fun YtPageScreen(card: Card, open: (Screen) -> Unit, back: () -> Unit) {
 @Composable
 fun LocalPlaylistScreen(name: String, back: () -> Unit) {
     val p = Library.playlists.firstOrNull { it.name == name } ?: return EmptyState(Ic.Queue, "This playlist was deleted")
-    TrackList(
-        p.tracks,
-        from = "Playlist" to p.name,
-        header = { PageHeader(p.name, "On this device", p.tracks.firstOrNull()?.art, false, back, { Library.deletePlaylist(name); back() }, p.tracks.size) },
+    CollectionPage(
+        PageKind.Playlist, p.name, "On this device", p.tracks.firstOrNull()?.art, p.tracks, back,
+        onDelete = { Library.deletePlaylist(name); back() },
         onRemove = { Library.removeFrom(name, it) },
     )
 }

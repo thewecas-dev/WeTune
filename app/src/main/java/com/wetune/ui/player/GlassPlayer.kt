@@ -9,6 +9,8 @@ import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -167,6 +169,9 @@ fun GlassPlayer(ui: PlayerUi) {
         val sideScale by animateFloatAsState(if (hasLyric && Settings.showInline) 1f else SideScale, tween(450), label = "crop")
         val split = maxHeight - controlsH + lower // where the cover area ends (the controls block itself stays fixed)
 
+        val bg = Settings.npBackground
+        val edge = Settings.npCover == "edge"
+        val ambientBlur = if (bg in CoverFills) 40.dp else 0.dp // a cover-made background behind a framed cover, softened
         // A new song crossfades in; dragging sideways moves only the cover (not the background) to show the skip coming.
         Crossfade(
             ui.t,
@@ -176,12 +181,17 @@ fun GlassPlayer(ui: PlayerUi) {
                     scaleX = 1.08f; scaleY = 1.08f
                     translationX = -tilt.value.x * 14.dp.toPx() * depthK; translationY = tilt.value.y * 14.dp.toPx() * depthK
                 }
-            }.blur(paneBlur, BlurredEdgeTreatment.Rectangle),
+            }.blur(if (edge) paneBlur else maxOf(paneBlur, ambientBlur), BlurredEdgeTreatment.Rectangle),
             animationSpec = tween(650), label = "song",
         ) { t ->
+            // Background and cover style are separate choices:
+            // - full-width cover: the cover is part of the background; non-cover backgrounds go underneath it
+            // - framed covers: a stretch / reflection / blur background is the full-width backdrop softened into ambient
+            //   color (so the cover isn't shown twice); the framed cover is drawn on top further down
             Box(Modifier.fillMaxSize()) {
-                if (Settings.npStyle == "bleed") CoverBackdrop(ui.pal, w, split, clearTop, coverAlpha, t, sideScale, space, onCoverBottom = { if (t.id == ui.t.id) coverBottom = it }) { swipe.value * 0.5f }
-                else StyledBackdrop(Settings.npStyle, ui.pal, t, split)
+                if (bg !in CoverFills) StyledBackdrop(bg, ui.pal, t, split)
+                if (edge) CoverBackdrop(ui.pal, w, split, clearTop, coverAlpha, t, sideScale, space, fill = if (bg in CoverFills) bg else "none", onCoverBottom = { if (t.id == ui.t.id) coverBottom = it }) { swipe.value * 0.5f }
+                else if (bg in CoverFills) CoverBackdrop(ui.pal, w, split, clearTop, coverAlpha, t, sideScale, space, fill = bg)
             }
         }
         // depth effect: the edges sink into shadow so the background reads as far behind the glass
@@ -245,9 +255,9 @@ fun GlassPlayer(ui: PlayerUi) {
             }
         }
 
-        // classic, strips and disc: the framed cover, evenly spaced like Bleeding edge's (which draws it in the background)
-        if (Settings.npStyle != "bleed") {
-            val base = when (Settings.npStyle) { "disc" -> w * 0.74f; "strips" -> w * 0.8f; else -> w - 48.dp }
+        // card, disc, strips and vinyl: the framed cover, evenly spaced like Bleeding edge's (which draws it in the background)
+        if (!edge) {
+            val base = when (Settings.npCover) { "disc" -> w * 0.8f; "strips" -> w * 0.84f; "vinyl" -> w * 0.8f; else -> w - 48.dp }
             // one size whatever the lyrics (on, off, one line or three): sized for the most room lyrics can take; only its place changes
             val size = minOf(base, CoverSpace(clearTop, titleTop, 112.dp, 3f).room).coerceAtLeast(120.dp)
             val top = space.topFor(size)
@@ -259,7 +269,7 @@ fun GlassPlayer(ui: PlayerUi) {
                     if (depthOn) { translationX = tilt.value.x * 7.dp.toPx() * depthK; translationY = -tilt.value.y * 7.dp.toPx() * depthK }
                 },
                 animationSpec = tween(500), label = "cover",
-            ) { StyledCover(Settings.npStyle, it, { swipe.value * 0.5f }, size) }
+            ) { StyledCover(Settings.npCover, it, { swipe.value * 0.5f }, size) }
         }
         // Lyrics (one line or three): centered between where the cover ends and the title; they open and close inside this
         // space, so nothing else moves
@@ -275,7 +285,7 @@ fun GlassPlayer(ui: PlayerUi) {
                 Spacer(Modifier.height(8.dp)) // the seek bar sits close under the title
                 GlassSeek(ui, onQuality = { audioOptions = true }) { seekDrag = it }
                 Spacer(Modifier.weight(1f))
-                Transport()
+                Transport(ui.pal.hue?.let { hueAccent(it, dark = true) } ?: Color.White)
                 Spacer(Modifier.weight(1f))
                 if (Settings.showVolume) {
                     VolumeRow()
@@ -321,19 +331,36 @@ private fun TitleRow(ui: PlayerUi, onPipeline: (() -> Unit)? = null) {
     }
 }
 
-/** Previous · play/pause · next as large plain glyphs, no circle behind them. */
+/** Shuffle · previous · play/pause in a filled circle of the cover's accent · next · repeat. */
 @Composable
-private fun Transport(compact: Boolean = false) {
+private fun Transport(accent: Color, compact: Boolean = false) {
     val playing = Playback.playing
     val pulse by rememberInfiniteTransition(label = "buffer").animateFloat(0.4f, 1f, infiniteRepeatable(tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "p")
-    Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
-        IconBtn(Ic.Rewind, "Previous", { Playback.prev() }, size = 64.dp, iconSize = if (compact) 34.dp else 40.dp, haptic = true)
+    val fill by animateColorAsState(accent, tween(650), label = "accent")
+    val one = Playback.repeat == androidx.media3.common.Player.REPEAT_MODE_ONE
+    val repeatOn = Playback.repeat != androidx.media3.common.Player.REPEAT_MODE_OFF
+    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+        ModeBtn(Ic.Shuffle, if (Playback.shuffle) "Shuffle on" else "Shuffle off", Playback.shuffle) { Playback.toggleShuffle() }
+        IconBtn(Ic.Prev, "Previous", { Playback.prev() }, size = 56.dp, iconSize = if (compact) 24.dp else 28.dp, tint = Color.White, haptic = true)
         // while a song loads, the play glyph breathes
         IconBtn(
             if (playing) Ic.Pause else Ic.Play, if (Playback.buffering) "Loading" else if (playing) "Pause" else "Play", Playback::toggle,
-            Modifier.shared("play").graphicsLayer { alpha = if (Playback.buffering) pulse else 1f }, size = 76.dp, iconSize = if (compact) 46.dp else 54.dp, haptic = true,
+            Modifier.shared("play").graphicsLayer { alpha = if (Playback.buffering) pulse else 1f },
+            size = if (compact) 64.dp else 74.dp, iconSize = if (compact) 28.dp else 32.dp,
+            tint = if (fill.luminance() > 0.45f) Color(0xFF111111) else Color.White, background = fill, haptic = true,
         )
-        IconBtn(Ic.Forward, "Next", { Playback.next() }, size = 64.dp, iconSize = if (compact) 34.dp else 40.dp, haptic = true)
+        IconBtn(Ic.Next, "Next", { Playback.next() }, size = 56.dp, iconSize = if (compact) 24.dp else 28.dp, tint = Color.White, haptic = true)
+        ModeBtn(if (one) Ic.RepeatOne else Ic.Repeat, if (one) "Repeat this song" else if (repeatOn) "Repeat all" else "Repeat off", repeatOn) { Playback.cycleRepeat() }
+    }
+}
+
+/** Shuffle / repeat: dim when off, bright with a small dot underneath when on. */
+@Composable
+private fun ModeBtn(icon: ImageVector, desc: String, on: Boolean, onClick: () -> Unit) {
+    val a by animateFloatAsState(if (on) 1f else 0.55f, tween(200), label = "mode")
+    Box(contentAlignment = Alignment.Center) {
+        IconBtn(icon, desc, onClick, size = 48.dp, iconSize = 22.dp, tint = Color.White.copy(alpha = a), haptic = true)
+        Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp).size(4.dp).graphicsLayer { alpha = if (on) 1f else 0f }.clip(CircleShape).background(Color.White))
     }
 }
 
@@ -362,33 +389,22 @@ private fun VolumeRow() {
     }
 }
 
-/** Lyrics · a pill with sleep timer and output device · queue. The output button shows the current device on tap. */
+/** Lyrics | sleep | queue: plain glyphs evenly spaced, split by thin dividers. */
 @Composable
 private fun BottomBar(ui: PlayerUi) {
-    val ctx = LocalContext.current
-    var outputMenu by remember { mutableStateOf(false) }
     val sleeping = Playback.sleepEndsAt > 0
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            IconBtn(Ic.LyricsQuote, "Lyrics", { ui.toggle("lyrics") }, tint = Color.White.copy(alpha = if (ui.pane == "lyrics") 1f else 0.8f), background = if (ui.pane == "lyrics") Color.White.copy(alpha = 0.18f) else Color.Transparent)
-            Row(Modifier.height(46.dp).clip(CircleShape).background(SoftBase).background(Color.White.copy(alpha = 0.12f)), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(56.dp, 46.dp).background(if (sleeping) Color.White.copy(alpha = 0.14f) else Color.Transparent).pressable(scale = 0.92f, onClick = ui.openSleep).semantics { contentDescription = if (sleeping) "Sleep timer on" else "Sleep timer" }, Alignment.Center) {
-                    Icon(Ic.Sleep, null, size = 21.dp, tint = Color.White)
-                }
-                Box(Modifier.size(1.dp, 22.dp).background(Color.White.copy(alpha = 0.18f)))
-                Box {
-                    Box(Modifier.size(56.dp, 46.dp).pressable(scale = 0.92f) { outputMenu = true }.semantics { contentDescription = "Where audio plays" }, Alignment.Center) {
-                        Icon(Ic.Output, null, size = 21.dp, tint = Color.White)
-                    }
-                    Menu(outputMenu, { outputMenu = false }, title = "Playing on") {
-                        val device = outputDevice(ctx).first
-                        Txt(if (device == "Phone speaker") "This phone" else device.substringAfter(" · "), Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp), style = Type.bodyStrong)
-                        MenuItem("Choose another device…", { outputMenu = false; openOutputSwitcher(ctx) }, Ic.Output)
-                    }
-                }
-            }
-            IconBtn(Ic.QueueList, "Queue", { ui.toggle("queue") }, tint = Color.White.copy(alpha = if (ui.pane == "queue") 1f else 0.8f), background = if (ui.pane == "queue") Color.White.copy(alpha = 0.18f) else Color.Transparent)
-        }
+    @Composable fun Divider() = Box(Modifier.size(1.dp, 18.dp).background(Color.White.copy(alpha = 0.2f)))
+    @Composable fun Action(icon: ImageVector, desc: String, on: Boolean, onClick: () -> Unit) {
+        val a by animateFloatAsState(if (on) 1f else 0.75f, tween(200), label = "action")
+        val bg by animateColorAsState(Color.White.copy(alpha = if (on) 0.16f else 0f), tween(200), label = "actionBg")
+        IconBtn(icon, desc, onClick, size = 46.dp, iconSize = 21.dp, tint = Color.White.copy(alpha = a), background = bg)
+    }
+    Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
+        Action(Ic.LyricsQuote, "Lyrics", ui.pane == "lyrics") { ui.toggle("lyrics") }
+        Divider()
+        Action(Ic.Moon, if (sleeping) "Sleep timer on" else "Sleep timer", sleeping, ui.openSleep)
+        Divider()
+        Action(Ic.QueueList, "Queue", ui.pane == "queue") { ui.toggle("queue") }
     }
 }
 
@@ -428,7 +444,7 @@ private fun LandscapePlayer(ui: PlayerUi, seekDrag: Float?, onSeekDrag: (Float?)
                 Spacer(Modifier.height(14.dp))
                 GlassSeek(ui, onSeekDrag = onSeekDrag)
                 Spacer(Modifier.height(4.dp))
-                Transport(compact = true)
+                Transport(ui.pal.hue?.let { hueAccent(it, dark = true) } ?: Color.White, compact = true)
             }
         }
     }
@@ -533,7 +549,7 @@ private fun SleepBadge(modifier: Modifier) {
 private fun CoverMenu(ui: PlayerUi, open: Boolean, onDismiss: () -> Unit) {
     var pick by remember { mutableStateOf(false) }
     fun close(a: () -> Unit): () -> Unit = { onDismiss(); a() }
-    Menu(open, onDismiss) {
+    Menu(open, onDismiss, header = { MenuTrackHeader(ui.t) }) {
         val liked = Library.isLiked(ui.t)
         MenuItem(if (liked) "Remove from Liked" else "Like", close { io { Library.toggleLike(ui.t) } }, if (liked) Ic.Heart else Ic.HeartOutline)
         if (ui.t.source == "yt") MenuItem("Start radio", close { Playback.startRadio(ui.t) }, Ic.Radio)
@@ -550,23 +566,26 @@ private val SoftBase = Color.Black.copy(alpha = 0.16f)
 /** Round button in the style of P1's "This phone" pill: a soft white wash, no frame. */
 @Composable
 private fun SoftCircle(icon: ImageVector, label: String, active: Boolean = false, size: Int = 46, onClick: () -> Unit) {
+    // plain glyph like the transport and bottom actions; a soft wash only while active
+    val bg by animateColorAsState(Color.White.copy(alpha = if (active) 0.16f else 0f), tween(200), label = "soft")
     Box(
-        Modifier.size(size.dp).clip(CircleShape).background(SoftBase).background(Color.White.copy(alpha = if (active) 0.24f else 0.1f))
+        Modifier.size(size.dp).clip(CircleShape).background(bg)
             .semantics { contentDescription = label; selected = active }
             .pressable(scale = 0.9f, onClick = onClick),
         Alignment.Center,
-    ) { Icon(icon, null, size = 20.dp, tint = Color.White.copy(alpha = if (active) 1f else 0.85f)) }
+    ) { Icon(icon, null, size = 22.dp, tint = Color.White.copy(alpha = if (active) 1f else 0.9f)) }
 }
 
 /** ⋯ in the player: everything that isn't needed every second lives here. */
 @Composable
 private fun PlayerMenu(ui: PlayerUi, onPipeline: (() -> Unit)? = null) {
+    val ctx = LocalContext.current
     var open by remember { mutableStateOf(false) }
     var pick by remember { mutableStateOf(false) }
     fun close(a: () -> Unit): () -> Unit = { open = false; a() }
     Box {
         SoftCircle(Ic.More, "More options") { open = true }
-        Menu(open, { open = false }) {
+        Menu(open, { open = false }, header = { MenuTrackHeader(ui.t) }) {
             MenuItem("Add to playlist…", close { pick = true }, Ic.AddPlaylist)
             if (ui.t.source != "local") {
                 val done = Library.downloads.any { it.id == ui.t.id }
@@ -575,11 +594,7 @@ private fun PlayerMenu(ui: PlayerUi, onPipeline: (() -> Unit)? = null) {
             }
             MenuItem("Play next", close { Playback.playNext(ui.t) }, Ic.PlayNext)
             if (ui.t.source == "yt") MenuItem("Start radio", close { Playback.startRadio(ui.t) }, Ic.Radio)
-            MenuItem(if (Playback.shuffle) "Shuffle: on" else "Shuffle: off", { Playback.toggleShuffle() }, Ic.Shuffle)
-            MenuItem(
-                when (Playback.repeat) { androidx.media3.common.Player.REPEAT_MODE_ALL -> "Repeat: all"; androidx.media3.common.Player.REPEAT_MODE_ONE -> "Repeat: this song"; else -> "Repeat: off" },
-                { Playback.cycleRepeat() }, if (Playback.repeat == androidx.media3.common.Player.REPEAT_MODE_ONE) Ic.RepeatOne else Ic.Repeat,
-            )
+            MenuItem("Playing on: ${outputDevice(ctx).first.substringAfter(" · ")}", close { openOutputSwitcher(ctx) }, Ic.Output)
             GoToItems(ui, open) { a -> close(a)() }
             if (onPipeline != null) MenuItem("Audio pipeline", close(onPipeline), Ic.Pipeline)
         }

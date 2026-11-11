@@ -25,13 +25,13 @@ object Settings {
     var radioSeed by Str("radio_seed", "") // YouTube id the current radio started from, so auto-added songs stay related
     var lastFrom by Str("last_from", "") // what the current queue was started from, kind + NUL + name
     var showVolume by Bool("show_volume", true) // volume slider in Now Playing
-    var npStyle by Str("np_style", "bleed") // Now Playing look: bleed (Bleeding edge) | classic | strips | disc
+    var npCover by Str("np_cover", "edge") // how the cover is framed: edge (full width) | card | disc | strips | vinyl
     var npHideStatus by Bool("np_hide_status", true) // hide the status bar (clock, notifications) while Now Playing is open
     var npHeader by Bool("np_header", true) // the grabber and "Playing from" at the top of Now Playing
     var npDepth by Bool("np_depth", false) // tilt the phone and the background shifts behind the cover, edges darkened
     var depthIntensity by IntPref("depth_intensity", 50) // 0…100; 50 is the original strength
     var depthInvert by Bool("depth_invert", false) // flip which way the layers move when the phone tilts
-    var npFill by Str("np_fill", "stretch") // how the player fills around the cover: stretch | mirror | blur
+    var npBackground by Str("np_fill", "stretch") // behind the cover, independent of its style: stretch | mirror | blur | fade | ribbed | black
     var showInline by Bool("show_inline", true) // lyrics on the Now Playing screen (above or below the title)
     var inlineStyle by Str("inline_style", "line") // lyric above the seek bar: line (one line) | stack (previous · current · next)
     // the full lyrics panel

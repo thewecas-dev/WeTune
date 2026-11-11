@@ -42,6 +42,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -252,11 +254,11 @@ fun TrackMenu(t: Track, onRemove: (() -> Unit)? = null, tint: Color = LocalConte
     fun close(action: () -> Unit): () -> Unit = { open.value = false; action() }
     Box {
         Box(Modifier.size(44.dp), Alignment.Center) {
-            Box(Modifier.size(36.dp).glassChip(CircleShape).pressable { open.value = true }.semantics { contentDescription = "More options for ${t.title}" }, Alignment.Center) {
-                Icon(Ic.More, null, size = 16.dp, tint = tint)
+            Box(Modifier.size(40.dp).clip(CircleShape).pressable { open.value = true }.semantics { contentDescription = "More options for ${t.title}" }, Alignment.Center) {
+                Icon(Ic.More, null, size = 20.dp, tint = tint.copy(alpha = 0.7f))
             }
         }
-        Menu(open.value, { open.value = false }) {
+        Menu(open.value, { open.value = false }, header = { MenuTrackHeader(t) }) {
             MenuItem("Play next", close { Playback.playNext(t) }, Ic.PlayNext)
             if (t.source == "yt") MenuItem("Start radio", close { Playback.startRadio(t) }, Ic.Radio)
             MenuItem("Add to queue", close { Playback.enqueue(t) }, Ic.Queue)
@@ -377,29 +379,6 @@ fun PlayButtons(tracks: List<Track>, from: Pair<String, String>? = null) {
     }
 }
 
-/** Cover blurred behind the header, fading into the page. */
-@Composable
-fun PageHeader(title: String, subtitle: String, art: String?, round: Boolean, back: () -> Unit, onDelete: (() -> Unit)? = null, count: Int? = null) {
-    val c = WT.c
-    val tint = rememberArtTint(art) ?: c.surfaceHigh
-    Box(Modifier.fillMaxWidth()) {
-        Box(Modifier.matchParentSize().background(tint.copy(alpha = if (c.dark) 0.35f else 0.25f)))
-        AsyncImage(art, null, Modifier.matchParentSize().blur(60.dp), contentScale = ContentScale.Crop, alpha = 0.55f)
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(c.bg.copy(alpha = 0.2f), c.bg.copy(alpha = 0.6f), c.bg))))
-        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(bottom = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                IconBtn(Ic.Back, "Back", back)
-                Spacer(Modifier.weight(1f))
-                if (onDelete != null) IconBtn(Ic.Delete, "Delete playlist", onDelete, tint = c.danger)
-            }
-            Art(art, Modifier.size(240.dp).shadow(30.dp, if (round) CircleShape else RoundedCornerShape(Tokens.RadiusLarge)), if (round) CircleShape else RoundedCornerShape(Tokens.RadiusLarge))
-            Txt(title, Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp), style = Type.display.copy(fontSize = Type.title.fontSize * 1.25f), align = TextAlign.Center, maxLines = 3)
-            val meta = listOfNotNull(subtitle.takeIf { it.isNotBlank() }, count?.let { "$it songs" }).joinToString(" • ")
-            if (meta.isNotBlank()) Txt(meta, Modifier.padding(horizontal = 24.dp, vertical = 6.dp), color = c.muted, align = TextAlign.Center, maxLines = 2)
-        }
-    }
-}
-
 /** A song list with Play/Shuffle; [extra] adds more items (e.g. carousels) after the songs. */
 @Composable
 fun TrackList(
@@ -418,5 +397,54 @@ fun TrackList(
             TrackRow(t, { Playback.play(tracks, i, from) }, onRemove?.let { { it(t) } }, number = if (numbered) i + 1 else null)
         }
         extra()
+    }
+}
+
+/**
+ * Pull down at the top of a list to refresh. The list follows your finger (at half speed); past the line,
+ * letting go calls [onRefresh] and a spinner holds until [refreshing] turns false.
+ */
+@Composable
+fun PullRefresh(refreshing: Boolean, onRefresh: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val trigger = with(density) { 84.dp.toPx() }
+    var pull by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val settle = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.85f, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)
+    LaunchedEffect(refreshing) {
+        androidx.compose.animation.core.animate(pull, if (refreshing) trigger * 0.7f else 0f, animationSpec = settle) { v, _ -> pull = v }
+    }
+    val conn = remember(refreshing) {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                // pushing back up while pulled: undo the pull before the list scrolls
+                if (refreshing || available.y >= 0f || pull <= 0f) return androidx.compose.ui.geometry.Offset.Zero
+                val used = maxOf(available.y, -pull)
+                pull += used
+                return androidx.compose.ui.geometry.Offset(0f, used)
+            }
+            override fun onPostScroll(consumed: androidx.compose.ui.geometry.Offset, available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                // the list is at the top and you keep pulling
+                if (refreshing || available.y <= 0f || source != androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) return androidx.compose.ui.geometry.Offset.Zero
+                pull = (pull + available.y * 0.5f).coerceAtMost(trigger * 1.6f)
+                return androidx.compose.ui.geometry.Offset(0f, available.y)
+            }
+            override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                if (refreshing || pull <= 0f) return androidx.compose.ui.unit.Velocity.Zero
+                if (pull >= trigger) onRefresh() else androidx.compose.animation.core.animate(pull, 0f, animationSpec = settle) { v, _ -> pull = v }
+                return available
+            }
+        }
+    }
+    Box(modifier.fillMaxSize().nestedScroll(conn)) {
+        Box(Modifier.fillMaxSize().graphicsLayer { translationY = pull }) { content() }
+        val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        Box(
+            Modifier.align(Alignment.TopCenter).padding(top = top).graphicsLayer {
+                val p = (pull / trigger).coerceIn(0f, 1f)
+                alpha = p; scaleX = 0.6f + 0.4f * p; scaleY = scaleX
+                translationY = pull * 0.45f - 8.dp.toPx()
+            }.size(40.dp).shadow(6.dp, CircleShape).clip(CircleShape).background(WT.c.surfaceHigh),
+            Alignment.Center,
+        ) { Spinner(size = 20.dp, color = WT.c.text) }
     }
 }

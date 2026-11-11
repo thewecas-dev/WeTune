@@ -21,6 +21,19 @@ object YouTube : Source {
     fun searchCards(query: String): List<Card> =
         items(InnerTube.post("search", JSONObject().put("query", query))).cards
 
+    /** YouTube Music's own search filters (the params its web client sends for each chip). */
+    val SearchFilters = mapOf(
+        "songs" to SONGS_FILTER,
+        "videos" to "EgWKAQIQAWoMEA4QChADEAQQCRAF",
+        "albums" to "EgWKAQIYAWoMEA4QChADEAQQCRAF",
+        "artists" to "EgWKAQIgAWoMEA4QChADEAQQCRAF",
+        "playlists" to "EgeKAQQoAEABagwQDhAKEAMQBBAJEAU=",
+    )
+
+    /** One kind of result only: songs and videos come back as tracks, the rest as cards. */
+    fun searchKind(query: String, kind: String): Items =
+        items(InnerTube.post("search", JSONObject().put("query", query).put("params", SearchFilters.getValue(kind))))
+
     /** The Home feed, including the next few pages (YouTube sends trending, new releases etc. further down). */
     /** The first page of Home and the token for the next (null when there's no more). */
     fun home(): Pair<List<Section>, String?> {

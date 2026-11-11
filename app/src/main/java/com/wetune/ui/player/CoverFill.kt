@@ -52,7 +52,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** How the space around the cover is filled. */
-val FillModes = listOf("stretch" to "Stretch", "mirror" to "Reflection", "blur" to "Blur")
+
 
 /** Sharp-cover edges for stretch/mirror: a short eased blend into the extension, since it continues the same pixels. */
 /** Soft left and right edges, used when a short screen makes the cover narrower than the screen. */
@@ -86,17 +86,17 @@ private fun rememberCover(url: String?): ImageBitmap? {
 
 /**
  * Everything behind the player's text: the cover shown whole at full width, ending where the controls begin,
- * with the space around it filled per [Settings.npFill]. Blur mode keeps the earlier look (8% side crop).
+ * with the space around it filled per [fill]. Blur mode keeps the earlier look (8% side crop).
  */
 @Composable
-fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, t: Track, sideScale: Float = SideScale, space: CoverSpace = CoverSpace(clearTop, split, 0.dp, 2f), onCoverBottom: (Dp) -> Unit = {}, coverShift: () -> Float = { 0f }) {
+fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: Float, t: Track, sideScale: Float = SideScale, space: CoverSpace = CoverSpace(clearTop, split, 0.dp, 2f), fill: String = "stretch", onCoverBottom: (Dp) -> Unit = {}, coverShift: () -> Float = { 0f }) {
     // [space]: where the cover may go and how the gaps around it are shared (see [CoverSpace])
     // [onCoverBottom]: where the cover ends, so the lyrics can sit midway between it and the title
     // [sideScale]: how much wider than the screen the cover is drawn (1.14 trims ~6% per side; 1 = the whole cover)
     // [clearTop]: bottom of the grabber and "Playing from" header; the cover always starts below it
     // (only stable inputs, so the backdrop skips the 4-times-a-second recompositions from the playback position)
     val floor = lerp(pal.sea, Color.Black, 0.6f)
-    val mode = Settings.npFill
+    val mode = fill // stretch | mirror | blur, or "none": only the cover, over a background drawn underneath
     val img = rememberCover(t.art)
 
     when {
@@ -113,6 +113,7 @@ fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: F
             val coverH = coverW * ratio
             val top = space.topFor(coverH) // evenly spaced between the header, the lyrics and the title
             androidx.compose.runtime.SideEffect { onCoverBottom(top + coverH) }
+            if (mode != "none") {
             if (!fits) Cover(t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.4f; scaleY = 1.4f; alpha = coverAlpha }.blur(60.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.9f)
             if (mode == "mirror") Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = coverAlpha }.blur(14.dp, BlurredEdgeTreatment.Rectangle)) {
                 extend(img, top.toPx(), coverH.toPx(), mirror = true, coverWidth = coverW.toPx())
@@ -139,6 +140,7 @@ fun CoverBackdrop(pal: ArtPalette, w: Dp, split: Dp, clearTop: Dp, coverAlpha: F
                     ) { extend(img, top.toPx(), coverH.toPx(), mirror = false, above = isTop, under = !isTop, coverWidth = coverW.toPx()) }
                 }
                 Reflection(img, top, coverH, coverW, coverAlpha)
+            }
             }
             Image(
                 img, null,

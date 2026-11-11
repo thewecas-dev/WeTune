@@ -96,16 +96,8 @@ object WT {
         @Composable @ReadOnlyComposable get() = LocalPalette.current
 }
 
-/** The cover color nudged until it reads as text and fill on this theme's background. */
-fun readableAccent(c: Color, dark: Boolean): Color {
-    var out = c
-    repeat(6) {
-        val l = out.luminance()
-        if (dark && l < 0.3f) out = androidx.compose.ui.graphics.lerp(out, Color.White, 0.2f)
-        else if (!dark && l > 0.25f) out = androidx.compose.ui.graphics.lerp(out, Color.Black, 0.2f)
-    }
-    return out
-}
+/** The accent for a cover: only its [hue] changes; saturation and lightness stay fixed so every song's accent feels equally strong. */
+fun hueAccent(hue: Float, dark: Boolean): Color = Color.hsl(hue, if (dark) 0.6f else 0.55f, if (dark) 0.7f else 0.45f)
 
 @Composable
 fun WeTuneTheme(content: @Composable () -> Unit) {
@@ -117,7 +109,7 @@ fun WeTuneTheme(content: @Composable () -> Unit) {
     }
     val art = NowColors.palette
     val accent by animateColorAsState(
-        if (Settings.matchAccent && art != null) readableAccent(art.band, base.dark) else base.accent, tween(600), label = "accent",
+        art?.hue?.takeIf { Settings.matchAccent }?.let { hueAccent(it, base.dark) } ?: base.accent, tween(600), label = "accent",
     )
     val palette = base.copy(accent = accent, onAccent = if (accent.luminance() > 0.5f) Color(0xFF15100C) else Color.White)
     val view = LocalView.current

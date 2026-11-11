@@ -126,7 +126,13 @@ fun AppUi() {
                             (slideOutHorizontally(ease) { -it / 10 } + fadeOut(tween(160)))
                         depth < 0 -> (slideInHorizontally(ease) { -it / 10 } + fadeIn(tween(220))) togetherWith
                             (slideOutHorizontally(ease) { it / 4 } + fadeOut(tween(160)))
-                        else -> fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120))
+                        else -> {
+                            // tab switch: slide toward the tab's side of the nav (Search sits at the far right)
+                            fun order(s: Screen) = tabs.indexOfFirst { it.screen == s }.let { if (it < 0) tabs.size else it }
+                            val dir = if (order(targetState.second) > order(initialState.second)) 1 else -1
+                            (slideInHorizontally(ease) { dir * it / 5 } + fadeIn(tween(220, delayMillis = 40))) togetherWith
+                                (slideOutHorizontally(ease) { -dir * it / 5 } + fadeOut(tween(140)))
+                        }
                     }.using(SizeTransform(clip = false))
                 },
                 contentKey = { it.second },

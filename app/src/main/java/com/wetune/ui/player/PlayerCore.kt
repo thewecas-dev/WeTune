@@ -82,7 +82,8 @@ import kotlinx.coroutines.withContext
 // ---- Colors from the cover ----
 
 /** [band] is the cover's vibrant color (app accent); [sea] is a dark muted one (player backdrop). */
-data class ArtPalette(val band: Color, val sea: Color)
+/** [hue]: the cover's main hue (null for a black-and-white cover); accents use only this, at a fixed saturation and lightness. */
+data class ArtPalette(val band: Color, val sea: Color, val hue: Float? = null)
 
 val SunsetPalette = ArtPalette(Color(0xFFE0613F), Color(0xFF123445))
 
@@ -101,7 +102,9 @@ internal suspend fun artPalette(ctx: Context, url: String?): ArtPalette? = withC
     val deep = c(p.darkVibrantSwatch) ?: lerp(band, Color.Black, 0.35f)
     var sea = c(p.darkMutedSwatch) ?: lerp(deep, Color.Black, 0.45f)
     if (sea.luminance() > 0.12f) sea = lerp(sea, Color.Black, 0.45f) // backdrops must stay dark enough for white text
-    ArtPalette(band, sea)
+    // the hue of the colour covering most of the cover (weighted by how colourful it is), so the accent clearly belongs to it
+    val hue = p.swatches.filter { it.hsl[1] > 0.18f && it.hsl[2] in 0.12f..0.92f }.maxByOrNull { it.population * it.hsl[1] }?.hsl?.get(0)
+    ArtPalette(band, sea, hue)
 }
 
 // ---- Player state ----
