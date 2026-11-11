@@ -18,8 +18,16 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyItemScope
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import com.wetune.Settings
 import kotlin.math.roundToInt
@@ -76,6 +84,7 @@ import com.wetune.Lyrics
 import com.wetune.Playback
 import com.wetune.rememberPosition
 import com.wetune.sources.Track
+import com.wetune.ui.glass.liquidGlass
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -219,7 +228,7 @@ fun romanize(text: String): String? {
 }
 
 @Composable
-fun LyricsView(t: Track, pos: Long, modifier: Modifier = Modifier.fillMaxSize()) {
+fun LyricsView(t: Track, pos: Long, modifier: Modifier = Modifier.fillMaxSize(), tools: Boolean = true) {
     val lines = rememberLyrics(t) ?: return Box(Modifier.fillMaxWidth().padding(40.dp), Alignment.Center) { Spinner(color = LocalContentColor.current) }
     if (lines.isEmpty()) return Txt("No lyrics found for this song", Modifier.padding(24.dp), color = Dim)
     val synced = lines.first().ms >= 0
@@ -239,25 +248,26 @@ fun LyricsView(t: Track, pos: Long, modifier: Modifier = Modifier.fillMaxSize())
     val c = LocalContentColor.current
     val canRomanize = remember(lines) { lines.any { romanize(it.text) != null } }
     Box(modifier) {
-        // soft fade at the top and bottom edges so lines drift in and out instead of being cut
+        // soft fade at the top and bottom edges so lines drift in and out instead of being cut (the pane fades its own edges,
+        // clear of the now bar and its tray, and leaves room to scroll the last line above them)
         LazyColumn(
-            Modifier.fillMaxSize().graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+            if (!tools) Modifier.fillMaxSize() else Modifier.fillMaxSize().graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
                     drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 0.12f to Color.Black, 0.85f to Color.Black, 1f to Color.Transparent), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
                 },
-            state, contentPadding = PaddingValues(top = 60.dp, bottom = 120.dp),
+            state, contentPadding = if (tools) PaddingValues(top = 60.dp, bottom = 120.dp) else PaddingValues(top = 24.dp, bottom = 320.dp),
         ) {
             itemsIndexed(lines) { i, line ->
                 val active = !synced || i == current
                 // glide: the sung line grows a little; fade: lines only brighten and dim; instant: no animation at all
                 val grow by animateFloatAsState(if (motion != "glide" || (active && synced)) 1f else 0.94f, spring(dampingRatio = 0.8f), label = "grow")
-                val shade = if (active) 1f else (0.42f - 0.06f * kotlin.math.abs(i - current).coerceAtMost(4)).coerceAtLeast(0.18f)
+                val shade = if (active) 1f else if (i < current) 0.22f else 0.38f // sung lines step back further than the ones to come
                 val fade by animateFloatAsState(shade, if (motion == "instant") androidx.compose.animation.core.snap() else tween(320), label = "fade")
                 Column(
                     Modifier.fillMaxWidth().then(if (synced) Modifier.pressable(scale = 0.98f) { Playback.seek(line.ms) } else Modifier)
                         .graphicsLayer { scaleX = grow; scaleY = grow; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(originX, 0.5f) }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = 11.dp),
                 ) {
                     // the line being sung fills in letter by letter (only when the lyrics provider timed it word by word)
                     if (synced && i == current && Settings.lyricsWords && line.text.isNotBlank()) SungLine(line, pos + Lyrics.offset(t.id), lineStyle, c)
@@ -273,8 +283,8 @@ fun LyricsView(t: Track, pos: Long, modifier: Modifier = Modifier.fillMaxSize())
                 }
             }
         }
-        // tools: which lyrics version, timing offset, and Latin letters
-        Row(Modifier.align(Alignment.TopEnd).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // tools: which lyrics version, timing offset, and Latin letters (the pane has them in its now bar instead)
+        if (tools) Row(Modifier.align(Alignment.TopEnd).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             LyricsSourceButton(t)
             if (synced) LyricsOffsetButton(t)
             if (canRomanize) ToolPill(Ic.Latin, "Show lyrics in Latin letters", Settings.lyricsRoman) { Settings.lyricsRoman = !Settings.lyricsRoman }
@@ -282,97 +292,279 @@ fun LyricsView(t: Track, pos: Long, modifier: Modifier = Modifier.fillMaxSize())
     }
 }
 
-/** Up next: tap to jump, long-press and drag to reorder, swipe sideways to remove. */
+/** Stable list keys for the queue (a song's id, numbered when it's queued twice), so moves animate instead of redrawing. */
+private fun queueKeys(q: List<Track>): List<String> { val seen = HashMap<String, Int>(); return q.map { t -> "${t.id}#${seen.merge(t.id, 1, Int::plus)}" } }
+
+/**
+ * The queue ("calm list"): the songs already played folded at the top; Up next (tap to jump, drag the handle or
+ * long-press a row to reorder, swipe left to remove); then what autoplay adds after it, steered by Radio / Same artist
+ * (+ or swipe right to add one, or drag it up into Up next). The song playing now is in the now bar, not listed.
+ */
 @Composable
-fun QueueView(modifier: Modifier = Modifier.fillMaxSize()) {
+fun QueueView(modifier: Modifier = Modifier.fillMaxSize(), tools: Boolean = true) {
     val c = LocalContentColor.current
-    val state = rememberLazyListState(Playback.index)
-    val rowH = 62.dp
+    // after a drop the list shows the new order at once; the player confirms the move a frame or more later
+    var moved by remember { mutableStateOf<List<Track>?>(null) }
+    val real = Playback.queue
+    LaunchedEffect(real) { moved = null }
+    val queue = moved ?: real
+    val now = Playback.index
+    val scope = rememberCoroutineScope()
+    var settleKey by remember { mutableStateOf<String?>(null) } // the row gliding from where it was let go to its slot
+    var settleY by remember { mutableFloatStateOf(0f) }
+    val state = rememberLazyListState()
+    val rowH = 60.dp
     val rowPx = with(LocalDensity.current) { rowH.toPx() }
+    val view = androidx.compose.ui.platform.LocalView.current
     var dragging by remember { mutableStateOf(-1) }
     var dragY by remember { mutableFloatStateOf(0f) }
-    Column(modifier) {
-        // Up next · shuffle · repeat (off → all → one, one button) · infinite (keeps adding similar songs)
-        Row(Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Txt("Up next", style = Type.headline)
-                if (Settings.autoplay) Txt("Similar songs keep coming", style = Type.caption.copy(fontSize = 12.sp), color = c.copy(alpha = 0.6f))
+    var showPlayed by rememberSaveable { mutableStateOf(false) }
+    val keys = remember(queue) { queueKeys(queue) }
+    // a song moves within its part (played, or to come); read fresh from Playback since gesture handlers outlive a composition
+    fun part(i: Int) = if (i < Playback.index) 0..(Playback.index - 1) else (Playback.index + 1)..Playback.queue.lastIndex
+    fun dropAt(i: Int) = (i + (dragY / rowPx).roundToInt()).coerceIn(part(i))
+    val target = if (dragging >= 0) dropAt(dragging) else -1
+    fun lift(i: Int) { dragging = i; dragY = 0f; view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) }
+    fun drop(i: Int) {
+        val to = dropAt(i)
+        val list = if (to != i) queue.toMutableList().apply { add(to, removeAt(i)) } else queue
+        // the row starts exactly where it was let go (relative to its new slot) and glides in
+        settleKey = queueKeys(list)[to]
+        settleY = dragY - (to - i) * rowPx
+        if (to != i) { moved = list; Playback.move(i, to) }
+        dragging = -1; dragY = 0f
+        scope.launch {
+            androidx.compose.animation.core.animate(settleY, 0f, animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f)) { v, _ -> settleY = v }
+            settleKey = null
+        }
+    }
+    fun cancel() { dragging = -1; dragY = 0f }
+
+    // what autoplay will add: the same lookup the service makes when the queue runs low
+    // shortcut: previews the seed's radio only; once that's used up the service switches to the playing song's radio, preview that too if it matters
+    val cur = Playback.current
+    val mix = Settings.autoplayMix
+    val autoOn = Settings.autoplay && cur?.source == "yt"
+    val seed = Settings.radioSeed.ifBlank { cur?.ref.orEmpty() }
+    val found by produceState(emptyList<Track>(), autoOn, mix, if (mix == "artist") cur?.artist else seed) {
+        value = emptyList()
+        if (!autoOn || cur == null) return@produceState
+        value = withContext(Dispatchers.IO) {
+            runCatching { if (mix == "artist") com.wetune.youtube.YouTube.byArtist(cur.artist) else com.wetune.youtube.YouTube.radio(seed) }.getOrDefault(emptyList())
+        }
+    }
+    val inQueue = remember(queue) { queue.mapTo(HashSet()) { it.id } }
+    val auto = remember(found, inQueue) { found.filter { it.id !in inQueue }.distinctBy { it.id }.take(5) }
+
+    /** A suggestion let go after dragging it up: lands before the Up next row under it, else at the end of Up next. */
+    fun dropSuggestion(t: Track, key: String, dy: Float) {
+        if (dy > -rowPx / 2) return // barely moved: stays a suggestion
+        val items = state.layoutInfo.visibleItemsInfo
+        val me = items.firstOrNull { it.key == key }
+        val y = (me?.offset ?: 0) + rowPx / 2 + dy
+        val hit = items.firstOrNull { y >= it.offset && y < it.offset + it.size }?.key
+        val at = queueKeys(Playback.queue).indexOf(hit)
+        when {
+            at > Playback.index -> Playback.insert(at, t)
+            at >= 0 || hit == "played" || hit == "upnext" -> Playback.insert(Playback.index + 1, t) // above Up next: first in it
+            else -> Playback.enqueue(t)
+        }
+    }
+
+    val titleStyle = Type.bodyStrong.copy(fontSize = 15.sp, lineHeight = 20.sp)
+    val subStyle = Type.caption.copy(fontSize = 13.sp, lineHeight = 18.sp, fontFeatureSettings = "tnum")
+    val headStyle = Type.headline.copy(fontSize = 20.sp, letterSpacing = (-0.2).sp)
+
+    /** A drag handle at the end of a row: 48 dp wide, as tall as the row. */
+    @Composable fun Handle(desc: String, lit: Boolean, drag: Modifier) =
+        Box(Modifier.size(48.dp, rowH).then(drag).semantics { contentDescription = desc }, Alignment.Center) {
+            Icon(Ic.Grip, null, size = 18.dp, tint = c.copy(alpha = if (lit) 0.9f else 0.35f))
+        }
+
+    @Composable fun LazyItemScope.QueueRow(i: Int, t: Track) {
+        var swipe by remember { mutableFloatStateOf(0f) }
+        val lifted = dragging == i
+        val settling = settleKey != null && keys.getOrNull(i) == settleKey
+        // while a song is dragged, the ones it passes slide out of its way
+        val make = when {
+            dragging < 0 || lifted -> 0f
+            i in (dragging + 1)..target -> -rowPx
+            i in target until dragging -> rowPx
+            else -> 0f
+        }
+        val shift by animateFloatAsState(make, spring(dampingRatio = 0.85f, stiffness = 500f), label = "shift")
+        val up by animateFloatAsState(if (lifted) 1f else 0f, spring(dampingRatio = 0.7f), label = "lift")
+        val dim = if (i < now) 0.6f else 1f // played songs step back
+        Row(
+            Modifier.fillMaxWidth().height(rowH)
+                // no placement animation while dragging or settling: the new order lands where the rows already are
+                .then(if (dragging >= 0 || settleKey != null) Modifier else Modifier.animateItem())
+                .zIndex(if (lifted || settling) 1f else 0f)
+                .graphicsLayer {
+                    translationX = swipe
+                    translationY = when {
+                        lifted -> dragY
+                        settling -> settleY
+                        dragging >= 0 -> shift
+                        else -> 0f // after a drop the others are already in their new slots
+                    }
+                    alpha = (if (lifted) 1f else dim) * (1f - (kotlin.math.abs(swipe) / size.width).coerceIn(0f, 0.7f))
+                    scaleX = 1f + 0.03f * up; scaleY = 1f + 0.03f * up
+                    shadowElevation = 24f * up
+                    shape = RoundedCornerShape(14.dp); clip = true
+                }
+                .background(c.copy(alpha = 0.14f * up))
+                // swipe left to remove
+                .pointerInput(i) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = { if (swipe < -size.width * 0.35f) Playback.remove(i); swipe = 0f },
+                        onDragCancel = { swipe = 0f },
+                    ) { ch, dx -> ch.consume(); swipe = (swipe + dx).coerceAtMost(0f) }
+                }
+                // long-press anywhere on the row and drag to reorder
+                .pointerInput(i) {
+                    detectDragGesturesAfterLongPress({ lift(i) }, { drop(i) }, { cancel() }) { ch, d -> ch.consume(); dragY += d.y }
+                }
+                .semantics {
+                    val p = part(i)
+                    customActions = listOfNotNull(
+                        if (i - 1 in p) CustomAccessibilityAction("Move up") { Playback.move(i, i - 1); true } else null,
+                        if (i + 1 in p) CustomAccessibilityAction("Move down") { Playback.move(i, i + 1); true } else null,
+                        CustomAccessibilityAction("Remove from queue") { Playback.remove(i); true },
+                    )
+                }
+                .pressable(scale = 0.98f) { Playback.skipTo(i) },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Art(t.art, Modifier.size(44.dp), RoundedCornerShape(10.dp))
+            Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                Txt(t.title, style = titleStyle, weight = FontWeight.SemiBold, maxLines = 1)
+                Txt(if (t.durationMs > 0) "${t.artist} · ${formatTime(t.durationMs)}" else t.artist, style = subStyle, color = c.copy(alpha = 0.55f), maxLines = 1)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ToolPill(Ic.Shuffle, if (Playback.shuffle) "Shuffle on" else "Shuffle off", Playback.shuffle) { Playback.toggleShuffle() }
-                val rep = Playback.repeat
-                ToolPill(
-                    if (rep == Player.REPEAT_MODE_ONE) Ic.RepeatOne else Ic.Repeat,
-                    when (rep) { Player.REPEAT_MODE_ALL -> "Repeat all"; Player.REPEAT_MODE_ONE -> "Repeat this song"; else -> "Repeat off" },
-                    rep != Player.REPEAT_MODE_OFF,
-                ) { Playback.cycleRepeat() }
-                ToolPill(Ic.Infinite, if (Settings.autoplay) "Infinite on: similar songs keep coming" else "Infinite off", Settings.autoplay) { Settings.autoplay = !Settings.autoplay }
+            Handle("Reorder ${t.title}", lifted, Modifier.pointerInput(i) {
+                detectVerticalDragGestures({ lift(i) }, { drop(i) }, { cancel() }) { ch, dy -> ch.consume(); dragY += dy }
+            })
+        }
+    }
+
+    @Composable fun LazyItemScope.AutoRow(k: Int, t: Track) {
+        val key = "auto:${t.id}"
+        var swipe by remember { mutableFloatStateOf(0f) }
+        var dy by remember { mutableFloatStateOf(0f) }
+        var held by remember { mutableStateOf(false) }
+        val up by animateFloatAsState(if (held) 1f else 0f, spring(dampingRatio = 0.7f), label = "lift")
+        val fade = 0.9f - 0.1f * k // suggestions trail off
+        Row(
+            Modifier.fillMaxWidth().height(rowH).then(if (held) Modifier else Modifier.animateItem())
+                .zIndex(if (held) 1f else 0f)
+                .graphicsLayer {
+                    translationX = swipe; translationY = dy
+                    alpha = (fade + (1f - fade) * up) * (1f - (swipe / size.width).coerceIn(0f, 0.6f))
+                    scaleX = 1f + 0.03f * up; scaleY = 1f + 0.03f * up
+                    shadowElevation = 24f * up
+                    shape = RoundedCornerShape(14.dp); clip = true
+                }
+                .background(c.copy(alpha = 0.14f * up))
+                // swipe right to add it to Up next
+                .pointerInput(t.id) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = { if (swipe > size.width * 0.35f) Playback.enqueue(t); swipe = 0f },
+                        onDragCancel = { swipe = 0f },
+                    ) { ch, dx -> ch.consume(); swipe = (swipe + dx).coerceAtLeast(0f) }
+                }
+                .semantics { customActions = listOf(CustomAccessibilityAction("Play next") { Playback.playNext(t); true }) },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Art(t.art, Modifier.size(44.dp), RoundedCornerShape(10.dp))
+            Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                Txt(t.title, style = titleStyle, weight = FontWeight.SemiBold, maxLines = 1)
+                Txt(t.artist, style = subStyle, color = c.copy(alpha = 0.55f), maxLines = 1)
+            }
+            IconBtn(Ic.Add, "Add ${t.title} to Up next", { Playback.enqueue(t) }, size = 48.dp, iconSize = 20.dp, tint = c.copy(alpha = 0.75f))
+            Handle("Drag ${t.title} into Up next", held, Modifier.pointerInput(t.id) {
+                detectVerticalDragGestures(
+                    onDragStart = { held = true; dy = 0f; view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) },
+                    onDragEnd = { dropSuggestion(t, key, dy); held = false; dy = 0f },
+                    onDragCancel = { held = false; dy = 0f },
+                ) { ch, d -> ch.consume(); dy += d }
+            })
+        }
+    }
+
+    LazyColumn(modifier, state, contentPadding = PaddingValues(bottom = if (tools) 16.dp else 300.dp)) {
+        if (now > 0) item("played") {
+            val turn by animateFloatAsState(if (showPlayed) 180f else 0f, tween(250), label = "turn")
+            Row(
+                Modifier.height(48.dp)
+                    .semantics { contentDescription = "${if (showPlayed) "Hide" else "Show"} $now played ${if (now == 1) "song" else "songs"}"; stateDescription = if (showPlayed) "expanded" else "collapsed" }
+                    .pressable(scale = 0.97f) { showPlayed = !showPlayed },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Ic.Down, null, Modifier.graphicsLayer { rotationZ = turn }, size = 18.dp, tint = c.copy(alpha = 0.6f))
+                Txt("$now played", Modifier.padding(start = 6.dp).clearAndSetSemantics {}, style = Type.caption.copy(fontSize = 13.sp), color = c.copy(alpha = 0.6f), weight = FontWeight.Medium)
             }
         }
-        // stable keys (a song's id, numbered when it's queued twice) so moves animate instead of redrawing in place
-        val keys = remember(Playback.queue) { val seen = HashMap<String, Int>(); Playback.queue.map { t -> val n = seen.merge(t.id, 1, Int::plus)!!; "${t.id}#$n" } }
-        val target = if (dragging >= 0) (dragging + (dragY / rowPx).roundToInt()).coerceIn(0, Playback.queue.lastIndex) else -1
-        LazyColumn(Modifier.fillMaxSize(), state) {
-            itemsIndexed(Playback.queue, key = { i, _ -> keys.getOrElse(i) { "$i" } }) { i, t ->
-                val current = i == Playback.index
-                var swipe by remember { mutableFloatStateOf(0f) }
-                val lifted = dragging == i
-                // while a song is dragged, the ones it passes slide out of its way
-                val make = when {
-                    dragging < 0 || lifted -> 0f
-                    i in (dragging + 1)..target -> -rowPx
-                    i in target until dragging -> rowPx
-                    else -> 0f
+        if (showPlayed) items(now.coerceAtMost(queue.size), key = { keys[it] }) { i -> QueueRow(i, queue[i]) }
+        item("upnext") {
+            val next = queue.drop(now + 1)
+            val min = next.sumOf { it.durationMs } / 60_000
+            Column {
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp).height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Txt("Up next", Modifier.weight(1f), style = headStyle, weight = FontWeight.SemiBold)
+                    Txt(
+                        "${next.size} ${if (next.size == 1) "song" else "songs"}" + (if (min > 0) " · " + (if (min >= 60) "${min / 60} h ${min % 60} min" else "$min min") else ""),
+                        style = Type.caption.copy(fontSize = 12.sp, fontFeatureSettings = "tnum"), color = c.copy(alpha = 0.55f), maxLines = 1,
+                    )
                 }
-                val shift by animateFloatAsState(make, spring(dampingRatio = 0.85f, stiffness = 500f), label = "shift")
-                val lift by animateFloatAsState(if (lifted) 1f else 0f, spring(dampingRatio = 0.7f), label = "lift")
-                Row(
-                    Modifier.fillMaxWidth().height(rowH)
-                        .then(if (lifted || dragging >= 0) Modifier else Modifier.animateItem())
-                        .zIndex(if (lifted) 1f else 0f)
-                        .graphicsLayer {
-                            translationX = swipe
-                            translationY = if (lifted) dragY else shift
-                            alpha = 1f - (kotlin.math.abs(swipe) / size.width).coerceIn(0f, 0.7f)
-                            scaleX = 1f + 0.03f * lift; scaleY = 1f + 0.03f * lift
-                            shadowElevation = 24f * lift
-                            shape = RoundedCornerShape(18.dp); clip = true
-                        }
-                        .background(if (current || lifted) c.copy(alpha = if (lifted) 0.16f else 0.12f) else Color.Transparent)
-                        .pointerInput(i) {
-                            detectHorizontalDragGestures(
-                                onDragEnd = { if (!current && kotlin.math.abs(swipe) > size.width * 0.35f) Playback.remove(i); swipe = 0f },
-                                onDragCancel = { swipe = 0f },
-                            ) { ch, dx -> if (!current) { ch.consume(); swipe += dx } }
-                        }
-                        .pressable(scale = 0.98f) { Playback.skipTo(i) },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // drag handle, left of the cover: grab and move up or down
-                    Box(
-                        Modifier.size(40.dp, rowH).pointerInput(i) {
-                            detectVerticalDragGestures(
-                                onDragStart = { dragging = i; dragY = 0f },
-                                onDragEnd = {
-                                    val to = (i + (dragY / rowPx).roundToInt()).coerceIn(0, Playback.queue.size - 1)
-                                    if (to != i) Playback.move(i, to)
-                                    dragging = -1; dragY = 0f
-                                },
-                                onDragCancel = { dragging = -1; dragY = 0f },
-                            ) { ch, dy -> ch.consume(); dragY += dy }
-                        }.semantics { contentDescription = "Drag to reorder ${t.title}" },
-                        Alignment.Center,
-                    ) { Icon(Ic.Grip, null, size = 20.dp, tint = c.copy(alpha = if (lifted) 0.9f else 0.45f)) }
-                    Art(t.art, Modifier.size(46.dp), RoundedCornerShape(10.dp))
-                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                        Txt(t.title, style = Type.bodyStrong, maxLines = 1)
-                        Txt(t.artist, style = Type.caption, color = c.copy(alpha = 0.6f), maxLines = 1)
-                    }
-                    if (current) Equalizer(Playback.playing, c, Modifier.padding(end = 4.dp))
-                    // options for this song: play next, radio, like, playlist, download… and remove from the queue
-                    TrackMenu(t, onRemove = if (current) null else ({ Playback.remove(i) }), tint = c, removeLabel = "Remove from queue")
+                // sideways phone: no now bar, so shuffle / repeat / autoplay live here
+                if (tools) Row(Modifier.padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ToolPill(Ic.Shuffle, if (Playback.shuffle) "Shuffle on" else "Shuffle off", Playback.shuffle) { Playback.toggleShuffle() }
+                    val rep = Playback.repeat
+                    ToolPill(
+                        if (rep == Player.REPEAT_MODE_ONE) Ic.RepeatOne else Ic.Repeat,
+                        when (rep) { Player.REPEAT_MODE_ALL -> "Repeat all"; Player.REPEAT_MODE_ONE -> "Repeat this song"; else -> "Repeat off" },
+                        rep != Player.REPEAT_MODE_OFF,
+                    ) { Playback.cycleRepeat() }
+                    ToolPill(Ic.Infinite, if (Settings.autoplay) "Autoplay on: similar songs keep coming" else "Autoplay off", Settings.autoplay) { Settings.autoplay = !Settings.autoplay }
                 }
             }
+        }
+        items((queue.size - now - 1).coerceAtLeast(0), key = { keys[now + 1 + it] }) { k -> QueueRow(now + 1 + k, queue[now + 1 + k]) }
+        if (autoOn) {
+            item("autoplay") {
+                val accent by androidx.compose.animation.animateColorAsState(NowColors.palette?.hue?.let { hueAccent(it, dark = true) } ?: WT.c.accent, tween(650), label = "autoAccent")
+                Column {
+                    Row(Modifier.fillMaxWidth().padding(top = 18.dp).height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Ic.Infinite, null, size = 18.dp, tint = accent)
+                        Txt("Autoplay", Modifier.weight(1f).padding(start = 8.dp), style = headStyle, weight = FontWeight.SemiBold)
+                        Txt("after your queue", style = Type.caption.copy(fontSize = 12.sp), color = c.copy(alpha = 0.55f), maxLines = 1)
+                    }
+                    // what autoplay adds: YouTube's radio for the song, or more by the same artist
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
+                        listOf("radio" to "Radio", "artist" to "Same artist").forEach { (k, label) ->
+                            val on = mix == k
+                            val bg by androidx.compose.animation.animateColorAsState(if (on) c else c.copy(alpha = 0.1f), tween(200), label = "chip")
+                            Box(
+                                Modifier.height(44.dp).semantics { selected = on; contentDescription = "Autoplay: $label" }
+                                    .pressable(scale = 0.94f, role = androidx.compose.ui.semantics.Role.RadioButton) { Settings.autoplayMix = k },
+                                Alignment.Center,
+                            ) {
+                                // liquid: glass chips, the chosen one tinted bright
+                                val lq = com.wetune.ui.glass.LocalLiquid.current
+                                Box(
+                                    Modifier.height(34.dp)
+                                        .then(if (lq != null) Modifier.liquidGlass(lq, tint = if (on) c.copy(alpha = 0.85f) else null, dark = c.luminance() > 0.5f) else Modifier.clip(CircleShape).background(bg))
+                                        .padding(horizontal = 14.dp),
+                                    Alignment.Center,
+                                ) {
+                                    Txt(label, Modifier.clearAndSetSemantics {}, style = Type.caption.copy(fontSize = 13.sp), color = if (on) Color(0xFF141414) else c.copy(alpha = 0.8f), weight = FontWeight.SemiBold, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            itemsIndexed(auto, key = { _, t -> "auto:${t.id}" }) { k, t -> AutoRow(k, t) }
         }
     }
 }
@@ -400,15 +592,23 @@ private fun SleepSheet(onDismiss: () -> Unit) {
 /** A small round tool button for the lyrics panel. */
 @Composable
 private fun ToolPill(icon: ImageVector, label: String, active: Boolean = false, text: String? = null, onClick: () -> Unit) {
-    val c = LocalContentColor.current
+    val c0 = LocalContentColor.current
+    // liquid: glass, tinted bright with the content color while active (and the glyph flips dark on it)
+    val lq = com.wetune.ui.glass.LocalLiquid.current
+    val light = c0.luminance() > 0.5f
+    val c = if (lq != null && active) (if (light) Color(0xFF141414) else Color.White) else c0
     Row(
-        Modifier.height(36.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.16f)).background(c.copy(alpha = if (active) 0.26f else 0.12f))
+        Modifier.height(36.dp)
+            .then(
+                if (lq != null) Modifier.liquidGlass(lq, tint = if (active) c0.copy(alpha = 0.85f) else null, dark = light)
+                else Modifier.clip(CircleShape).background(Color.Black.copy(alpha = 0.16f)).background(c0.copy(alpha = if (active) 0.26f else 0.12f)),
+            )
             .semantics { contentDescription = label; selected = active }.pressable(scale = 0.92f, onClick = onClick)
             .padding(horizontal = if (text == null) 9.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, size = 18.dp, tint = c)
-        if (text != null) Txt(text, Modifier.padding(start = 6.dp), style = Type.caption.copy(fontSize = 12.sp, fontFeatureSettings = "tnum"), weight = FontWeight.SemiBold)
+        if (text != null) Txt(text, Modifier.padding(start = 6.dp), style = Type.caption.copy(fontSize = 12.sp, fontFeatureSettings = "tnum"), color = c, weight = FontWeight.SemiBold)
     }
 }
 
@@ -451,15 +651,18 @@ private fun SungLine(line: Lyrics.Line, pos: Long, style: TextStyle, c: Color) {
     KaraokeText(words, smoothPosition(pos + 150), style.copy(color = c), lit = c, dim = c.copy(alpha = 0.32f), modifier = Modifier.fillMaxWidth())
 }
 
+/** How a lyrics version is timed, as an icon and words: word by word (karaoke), by line, or not at all. */
+internal fun lyricsKind(v: Lyrics.Version): Pair<ImageVector, String> = when {
+    v.words -> Ic.Karaoke to "Word by word"
+    v.synced -> Ic.LinesSynced to "Synced by line"
+    else -> Ic.Lyrics to "Not synced"
+}
+
 /** One lyrics version in the menu: the source first, then how it's timed (word by word, by line, or not), then the song. */
 @Composable
-private fun LyricsVersionRow(v: Lyrics.Version, chosen: Boolean, onClick: () -> Unit) {
+internal fun LyricsVersionRow(v: Lyrics.Version, chosen: Boolean, onClick: () -> Unit) {
     val c = WT.c
-    val (icon, timing) = when {
-        v.words -> Ic.Karaoke to "Word by word"
-        v.synced -> Ic.Clock to "Synced by line"
-        else -> Ic.Lyrics to "Not synced"
-    }
+    val (icon, timing) = lyricsKind(v)
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).pressable(scale = 0.98f, onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

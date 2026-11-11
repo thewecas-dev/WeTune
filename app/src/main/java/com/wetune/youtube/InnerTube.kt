@@ -43,12 +43,12 @@ object InnerTube {
         }
     }
 
-    /** Blocking POST to youtubei/v1/[endpoint]. */
-    fun post(endpoint: String, body: JSONObject = JSONObject()): JSONObject {
+    /** Blocking POST to youtubei/v1/[endpoint]; [client]/[version] override the context client (e.g. ANDROID_MUSIC for timed lyrics). */
+    fun post(endpoint: String, body: JSONObject = JSONObject(), client: String = "WEB_REMIX", version: String = clientVersion): JSONObject {
         body.put(
             "context", JSONObject().put(
                 "client", JSONObject()
-                    .put("clientName", "WEB_REMIX").put("clientVersion", clientVersion)
+                    .put("clientName", client).put("clientVersion", version)
                     .put("hl", "en").put("gl", "US")
             )
         )

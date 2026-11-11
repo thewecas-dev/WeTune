@@ -16,6 +16,8 @@ object Settings {
     var subsonicPass by Str("subsonic_pass", "")
     var theme by Str("theme", "system") // system | light | dark | black
     var matchAccent by Bool("match_accent", true)
+    var glassStyle by Str("glass_style", "frosted") // the tab bar and mini player: frosted | liquid (lensing glass, Android 13+)
+    var glassSolid by Bool("glass_solid", false) // reduce transparency: liquid glass becomes a near-solid surface
     var lyricsRoman by Bool("lyrics_roman", false) // show a Latin-letter reading under each lyric line
     var romanInline by Bool("roman_inline", false) // the one-line lyric above the seek bar in Latin letters
     var lyricsWords by Bool("lyrics_words", true) // prefer word-by-word lyrics and light them up letter by letter
@@ -26,6 +28,7 @@ object Settings {
     var lastFrom by Str("last_from", "") // what the current queue was started from, kind + NUL + name
     var showVolume by Bool("show_volume", true) // volume slider in Now Playing
     var npCover by Str("np_cover", "edge") // how the cover is framed: edge (full width) | card | disc | strips | vinyl
+    var npLayout by Str("np_layout", "classic") // the controls under the cover: classic | dock | bigtitle | wave | beside
     var npHideStatus by Bool("np_hide_status", true) // hide the status bar (clock, notifications) while Now Playing is open
     var npHeader by Bool("np_header", true) // the grabber and "Playing from" at the top of Now Playing
     var npDepth by Bool("np_depth", false) // tilt the phone and the background shifts behind the cover, edges darkened
@@ -37,7 +40,7 @@ object Settings {
     // the full lyrics panel
     var lyricsMotion by Str("lyrics_motion", "glide") // how it moves between lines: glide | fade | instant
     var lyricsAlign by Str("lyrics_align", "start") // start | center | end
-    var lyricsSize by IntPref("lyrics_size", 28) // sp
+    var lyricsSize by IntPref("lyrics_size", 30) // sp
     var lyricsLeading by IntPref("lyrics_leading", 120) // line height, % of the font size
     var wifiHigh by Bool("wifi_high", true)
     var mobileHigh by Bool("mobile_high", false)
@@ -50,6 +53,7 @@ object Settings {
     var saavnRank by IntPref("saavn_rank", 99) // JioSaavn's place among the add-ons in Settings → Sources (0 = first; past the end = after all of them)
     var normalize by Bool("normalize", true)
     var autoplay by Bool("autoplay", true)
+    var autoplayMix by Str("autoplay_mix", "radio") // what autoplay adds: radio (songs like the seed) | artist (more by this artist)
     var autoRotate by Bool("auto_rotate", false)
     var recentSearches by Str("recent_searches", "") // newline-separated, newest first
 

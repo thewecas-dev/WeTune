@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -93,7 +94,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -108,9 +111,17 @@ import com.wetune.Lyrics
 import com.wetune.Playback
 import com.wetune.Settings
 import com.wetune.io
+import com.wetune.ui.glass.LiquidGlassContainer
+import com.wetune.ui.glass.LocalLiquid
+import com.wetune.ui.glass.liquidBackdrop
+import com.wetune.ui.glass.liquidGlass
+import com.wetune.ui.glass.rememberLiquidBackdrop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+/** Settings → Now Playing layout: how the controls under the cover are arranged. */
+val NpLayouts = listOf("classic" to "Classic", "dock" to "Glass dock", "bigtitle" to "Big title", "wave" to "Waveform", "beside" to "Play beside title")
 
 // The player (canvas "P5"): the cover over its own extended colors, soft round buttons in the four corners
 // and quiet controls in the bottom 40%.
@@ -123,7 +134,7 @@ fun GlassPlayer(ui: PlayerUi) {
     // the blur switches on at once (animating its radius re-blurs every frame); the fading dim and layout morph hide the step
     val paneBlur = if (paneOpen) 44.dp else 0.dp
     val paneDim by animateFloatAsState(if (paneOpen) 0.45f else 0f, tween(400), label = "paneDim")
-    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val statusTop = statusBarHeight()
     // where the cover may start: under the status bar or camera cutout, the grabber and "Playing from", plus a gap
     var headerH by remember { mutableStateOf(64.dp) }
     val cutTop = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
@@ -144,6 +155,8 @@ fun GlassPlayer(ui: PlayerUi) {
     // where the cover ends (each style reports it), so the lyrics can sit midway between it and the title
     var coverBottom by remember { mutableStateOf(0.dp) }
     var frame by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    val liquidOn = Settings.glassStyle == "liquid"
+    val backdrop = rememberLiquidBackdrop()
     BoxWithConstraints(Modifier.fillMaxSize().background(lerp(ui.pal.sea, Color.Black, 0.35f)).onGloballyPositioned { frame = it }) {
         if (maxWidth > maxHeight) return@BoxWithConstraints LandscapePlayer(ui, seekDrag) { seekDrag = it }
         val w = maxWidth
@@ -155,7 +168,8 @@ fun GlassPlayer(ui: PlayerUi) {
         if (lyricLines != null) hasLyric = lyricLines.isNotEmpty() && lyricLines.first().ms >= 0
         val lower by animateDpAsState(if (hasLyric && Settings.showInline) 0.dp else 56.dp, tween(450), label = "lower")
         // the controls block (title → bottom row) and, above it, a fixed space for the lyrics
-        val blockH = maxOf(270.dp, maxHeight * 0.3f)
+        val layout = Settings.npLayout
+        val blockH = maxOf(if (layout == "classic") 270.dp else 320.dp, maxHeight * 0.3f) // the other layouts have an extra row
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val controlsH = blockH + 124.dp + navBottom + 8.dp // 124 dp for the lyrics and the gaps around them, whatever the navigation bar takes
         val titleTop = maxHeight - blockH - navBottom - 8.dp // top of the controls block
@@ -172,6 +186,9 @@ fun GlassPlayer(ui: PlayerUi) {
         val bg = Settings.npBackground
         val edge = Settings.npCover == "edge"
         val ambientBlur = if (bg in CoverFills) 40.dp else 0.dp // a cover-made background behind a framed cover, softened
+        // Liquid: the background (cover, fills, dims) is recorded once as the backdrop every glass control here bends
+        val bgColor = lerp(ui.pal.sea, Color.Black, 0.35f)
+        Box(Modifier.fillMaxSize().then(if (liquidOn) Modifier.liquidBackdrop(backdrop).background(bgColor) else Modifier)) {
         // A new song crossfades in; dragging sideways moves only the cover (not the background) to show the skip coming.
         Crossfade(
             ui.t,
@@ -199,6 +216,7 @@ fun GlassPlayer(ui: PlayerUi) {
             drawRect(Brush.radialGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = (0.55f * depthK).coerceAtMost(0.8f)), center = center, radius = size.maxDimension * 0.62f))
         }
         if (paneDim > 0f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = paneDim)))
+        }
 
         // Lyrics or queue open: immersive. Only the panel, plus a slim bar at the bottom (title, play/pause, close) and the seek bar.
         BackHandler(paneOpen) { ui.setPane("art") }
@@ -209,8 +227,8 @@ fun GlassPlayer(ui: PlayerUi) {
             paneOpen, Modifier.fillMaxSize(), label = "immersive",
             transitionSpec = { (fadeIn(tween(380, delayMillis = 60)) togetherWith fadeOut(tween(220))).using(SizeTransform(clip = false)) },
         ) { open ->
-        CompositionLocalProvider(LocalShared provides SharedScopes(this@SharedTransitionLayout, this@AnimatedContent)) {
-        if (open) ImmersivePane(ui, onQuality = { audioOptions = true }) { seekDrag = it } else Box(Modifier.fillMaxSize()) {
+        CompositionLocalProvider(LocalShared provides SharedScopes(this@SharedTransitionLayout, this@AnimatedContent), LocalLiquid provides backdrop.takeIf { liquidOn }) {
+        if (open) ImmersivePane(ui) else Box(Modifier.fillMaxSize()) {
 
         // Top 60%: the corner buttons. On the cover: swipe to skip, long-press for a menu.
         Column(Modifier.fillMaxWidth().height(titleTop).padding(start = 16.dp, end = 16.dp, top = headerTop)) {
@@ -223,6 +241,7 @@ fun GlassPlayer(ui: PlayerUi) {
                 Alignment.Center,
             ) { Box(Modifier.size(40.dp, 5.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.55f))) }
             Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (layout == "dock") Spacer(Modifier.width(46.dp)) // balances the ⋯ on the right, so "Playing from" stays centered
                 // (no close button: swipe down or Back closes the player)
                 // what the queue was started from: "PLAYING FROM PLAYLIST" over "Tamil Hits 2025"
                 Column(Modifier.weight(1f).heightIn(min = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -231,6 +250,7 @@ fun GlassPlayer(ui: PlayerUi) {
                         Txt(name, Modifier.basicMarquee(iterations = Int.MAX_VALUE), style = Type.caption.copy(fontSize = 13.sp), color = Color.White, weight = FontWeight.SemiBold, maxLines = 1, align = TextAlign.Center)
                     }
                 }
+                if (layout == "dock") PlayerMenu(ui) { pipeline = true } // Glass dock: ⋯ moves up here
             }
           }
             SleepBadge(Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp))
@@ -281,17 +301,29 @@ fun GlassPlayer(ui: PlayerUi) {
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 8.dp)) {
             // the controls: a fixed-height block pinned to the bottom, rows spaced evenly inside it
             Column(Modifier.fillMaxWidth().height(blockH)) {
-                TitleRow(ui) { pipeline = true }
-                Spacer(Modifier.height(8.dp)) // the seek bar sits close under the title
-                GlassSeek(ui, onQuality = { audioOptions = true }) { seekDrag = it }
-                Spacer(Modifier.weight(1f))
-                Transport(ui.pal.hue?.let { hueAccent(it, dark = true) } ?: Color.White)
-                Spacer(Modifier.weight(1f))
-                if (Settings.showVolume) {
-                    VolumeRow()
-                    Spacer(Modifier.weight(1f))
+                val accent = ui.pal.hue?.let { hueAccent(it, dark = true) } ?: Color.White
+                val onQuality = { audioOptions = true }
+                val onPipeline = { pipeline = true }
+                val onSeek: (Float?) -> Unit = { seekDrag = it }
+                when (layout) {
+                    "dock" -> DockControls(ui, onQuality, onPipeline, onSeek)
+                    "bigtitle" -> BigTitleControls(ui, accent, onQuality, onPipeline, onSeek)
+                    "wave" -> WaveControls(ui, accent, onQuality, onPipeline, onSeek)
+                    "beside" -> BesideControls(ui, accent, onQuality, onPipeline, onSeek)
+                    else -> {
+                        TitleRow(ui, onPipeline)
+                        Spacer(Modifier.height(8.dp)) // the seek bar sits close under the title
+                        GlassSeek(ui, onQuality = onQuality, onSeekDrag = onSeek)
+                        Spacer(Modifier.weight(1f))
+                        Transport(accent)
+                        Spacer(Modifier.weight(1f))
+                        if (Settings.showVolume) {
+                            VolumeRow()
+                            Spacer(Modifier.weight(1f))
+                        }
+                        BottomBar(ui)
+                    }
                 }
-                BottomBar(ui)
             }
         }
         }
@@ -305,52 +337,261 @@ fun GlassPlayer(ui: PlayerUi) {
 
 /** Title and artist on the left; heart and ⋯ as soft round buttons on the right. */
 @Composable
-private fun TitleRow(ui: PlayerUi, onPipeline: (() -> Unit)? = null) {
-    val lift = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.45f), blurRadius = 12f)
-    val liked = Library.isLiked(ui.t)
-    val view = androidx.compose.ui.platform.LocalView.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            // long titles scroll slowly; tap the title for its album, the artist for the artist
-            Txt(
-                ui.t.title, Modifier.shared("title", text = true).basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000).pressable(scale = 0.98f) { ui.search(ui.t.album.ifBlank { ui.t.title }) },
-                style = Type.title.copy(fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Bold, shadow = lift), maxLines = 1,
-            )
-            Txt(
-                ui.t.artist, Modifier.shared("artist", text = true).basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000).pressable(scale = 0.98f) { ui.search(ui.t.artist.substringBefore(",").trim()) },
-                style = Type.body.copy(fontSize = 15.sp, shadow = lift), color = Color.White.copy(alpha = 0.7f), maxLines = 1,
-            )
+private fun TitleRow(ui: PlayerUi, onPipeline: (() -> Unit)? = null, menu: Boolean = true, big: Boolean = false, accent: Color = Color.White) {
+    Row(verticalAlignment = if (big) Alignment.Top else Alignment.CenterVertically) {
+        TitleText(ui, Modifier.weight(1f), big, accent)
+        Spacer(Modifier.width(if (big) 4.dp else 12.dp))
+        LikeBtn(ui)
+        if (menu) {
+            Spacer(Modifier.width(if (big) 0.dp else 10.dp))
+            PlayerMenu(ui, onPipeline)
         }
-        Spacer(Modifier.width(12.dp))
-        SoftCircle(if (liked) Ic.Heart else Ic.HeartOutline, if (liked) "Remove from Liked" else "Like", size = 44) {
-            view.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
-            io { Library.toggleLike(ui.t) }
-        }
-        Spacer(Modifier.width(10.dp))
-        PlayerMenu(ui, onPipeline)
     }
 }
 
-/** Shuffle · previous · play/pause in a filled circle of the cover's accent · next · repeat. */
+/** Title over artist (shared keys "title" / "artist"); [big]: Big title's 32 sp title and the artist in the accent. */
 @Composable
-private fun Transport(accent: Color, compact: Boolean = false) {
+private fun TitleText(ui: PlayerUi, modifier: Modifier = Modifier, big: Boolean = false, accent: Color = Color.White) {
+    val lift = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.45f), blurRadius = 12f)
+    Column(modifier) {
+        // long titles scroll slowly; tap the title for its album, the artist for the artist
+        Txt(
+            ui.t.title, Modifier.shared("title", text = true).basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000).pressable(scale = 0.98f) { ui.search(ui.t.album.ifBlank { ui.t.title }) },
+            style = if (big) Type.title.copy(fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.6).sp, shadow = lift)
+            else Type.title.copy(fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Bold, shadow = lift),
+            maxLines = 1,
+        )
+        Txt(
+            ui.t.artist, Modifier.padding(top = if (big) 4.dp else 0.dp).shared("artist", text = true).basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000).pressable(scale = 0.98f) { ui.search(ui.t.artist.substringBefore(",").trim()) },
+            style = Type.body.copy(fontSize = if (big) 16.sp else 15.sp, fontWeight = if (big) FontWeight.SemiBold else null, shadow = lift),
+            color = if (big) accent else Color.White.copy(alpha = 0.7f), maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun LikeBtn(ui: PlayerUi) {
+    val liked = Library.isLiked(ui.t)
+    val view = androidx.compose.ui.platform.LocalView.current
+    SoftCircle(if (liked) Ic.Heart else Ic.HeartOutline, if (liked) "Remove from Liked" else "Like", size = 44) {
+        view.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+        io { Library.toggleLike(ui.t) }
+    }
+}
+
+/**
+ * Play/pause filled with [fill] (dark glyph on a light fill); circle when square, pill when wider. Shared key "play":
+ * the bounds glide to the pane's button while the two fills crossfade; the glyph keeps its size. Breathes while loading.
+ */
+@Composable
+private fun PlayBtn(fill: Color, width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp = width, iconSize: androidx.compose.ui.unit.Dp = 32.dp) {
     val playing = Playback.playing
     val pulse by rememberInfiniteTransition(label = "buffer").animateFloat(0.4f, 1f, infiniteRepeatable(tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "p")
-    val fill by animateColorAsState(accent, tween(650), label = "accent")
-    val one = Playback.repeat == androidx.media3.common.Player.REPEAT_MODE_ONE
-    val repeatOn = Playback.repeat != androidx.media3.common.Player.REPEAT_MODE_OFF
-    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-        ModeBtn(Ic.Shuffle, if (Playback.shuffle) "Shuffle on" else "Shuffle off", Playback.shuffle) { Playback.toggleShuffle() }
-        IconBtn(Ic.Prev, "Previous", { Playback.prev() }, size = 56.dp, iconSize = if (compact) 24.dp else 28.dp, tint = Color.White, haptic = true)
-        // while a song loads, the play glyph breathes
-        IconBtn(
-            if (playing) Ic.Pause else Ic.Play, if (Playback.buffering) "Loading" else if (playing) "Pause" else "Play", Playback::toggle,
-            Modifier.shared("play").graphicsLayer { alpha = if (Playback.buffering) pulse else 1f },
-            size = if (compact) 64.dp else 74.dp, iconSize = if (compact) 28.dp else 32.dp,
-            tint = if (fill.luminance() > 0.45f) Color(0xFF111111) else Color.White, background = fill, haptic = true,
+    val bg by animateColorAsState(fill, tween(650), label = "accent")
+    val view = androidx.compose.ui.platform.LocalView.current
+    val lq = LocalLiquid.current
+    Box(
+        Modifier.shared("play").size(width, height).graphicsLayer { alpha = if (Playback.buffering) pulse else 1f }
+            // liquid: an orb of glass tinted with the fill (the glyph flips at the same 0.45 the glass's contrast floor does)
+            .then(if (lq != null) Modifier.liquidGlass(lq, tint = bg.copy(alpha = 0.8f), dark = true) else Modifier.clip(CircleShape).background(bg)).pressable {
+                view.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+                Playback.toggle()
+            },
+        Alignment.Center,
+    ) {
+        Icon(
+            if (playing) Ic.Pause else Ic.Play, if (Playback.buffering) "Loading" else if (playing) "Pause" else "Play",
+            size = iconSize, tint = if (bg.luminance() > 0.45f) Color(0xFF111111) else Color.White,
         )
-        IconBtn(Ic.Next, "Next", { Playback.next() }, size = 56.dp, iconSize = if (compact) 24.dp else 28.dp, tint = Color.White, haptic = true)
-        ModeBtn(if (one) Ic.RepeatOne else Ic.Repeat, if (one) "Repeat this song" else if (repeatOn) "Repeat all" else "Repeat off", repeatOn) { Playback.cycleRepeat() }
+    }
+}
+
+@Composable
+private fun SkipBtn(next: Boolean, size: androidx.compose.ui.unit.Dp = 56.dp, iconSize: androidx.compose.ui.unit.Dp = 28.dp) =
+    IconBtn(if (next) Ic.Next else Ic.Prev, if (next) "Next" else "Previous", { if (next) Playback.next() else Playback.prev() }, size = size, iconSize = iconSize, tint = Color.White, haptic = true)
+
+@Composable
+private fun ShuffleBtn() = ModeBtn(Ic.Shuffle, if (Playback.shuffle) "Shuffle on" else "Shuffle off", Playback.shuffle) { Playback.toggleShuffle() }
+
+@Composable
+private fun RepeatBtn() {
+    val one = Playback.repeat == androidx.media3.common.Player.REPEAT_MODE_ONE
+    val on = Playback.repeat != androidx.media3.common.Player.REPEAT_MODE_OFF
+    ModeBtn(if (one) Ic.RepeatOne else Ic.Repeat, if (one) "Repeat this song" else if (on) "Repeat all" else "Repeat off", on) { Playback.cycleRepeat() }
+}
+
+/** Shuffle · previous · play/pause in a filled circle ([fill]: the cover's accent, or white) · next · repeat. */
+@Composable
+private fun Transport(fill: Color, compact: Boolean = false) {
+    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+        ShuffleBtn()
+        SkipBtn(false, iconSize = if (compact) 24.dp else 28.dp)
+        PlayBtn(fill, if (compact) 64.dp else 74.dp, iconSize = if (compact) 28.dp else 32.dp)
+        SkipBtn(true, iconSize = if (compact) 24.dp else 28.dp)
+        RepeatBtn()
+    }
+}
+
+/** Glass dock: title + heart; thin seek; the transport in one frosted bar; Lyrics / Sleep / Queue pills; output · quality. */
+@Composable
+private fun ColumnScope.DockControls(ui: PlayerUi, onQuality: () -> Unit, onPipeline: () -> Unit, onSeek: (Float?) -> Unit) {
+    val ctx = LocalContext.current
+    TitleRow(ui, onPipeline, menu = !Settings.npHeader) // ⋯ sits in the header; it comes back here when the header is hidden
+    Spacer(Modifier.height(8.dp))
+    GlassSeek(ui, quality = false, onSeekDrag = onSeek)
+    Spacer(Modifier.weight(1f))
+    // a translucent wash, no rim or shadow (there's no haze source behind the player to blur)
+    val lq = LocalLiquid.current
+    Box(
+        Modifier.fillMaxWidth().then(if (lq != null) Modifier.liquidGlass(lq, 34.dp, interactive = false, dark = true) else Modifier.clip(RoundedCornerShape(34.dp)).background(Color.White.copy(alpha = 0.09f)))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Transport(Color.White, compact = true)
+    }
+    Spacer(Modifier.weight(1f))
+    PillRow(Arrangement.spacedBy(8.dp)) { glass ->
+        val m = Modifier.weight(1f)
+        LabelAction(Ic.LyricsQuote, "Lyrics", ui.pane == "lyrics", m, 0.07f, glass) { ui.toggle("lyrics") }
+        LabelAction(Ic.Moon, "Sleep", Playback.sleepEndsAt > 0, m, 0.07f, glass, ui.openSleep)
+        LabelAction(Ic.QueueList, "Queue", ui.pane == "queue", m, 0.07f, glass) { ui.toggle("queue") }
+    }
+    Row(Modifier.align(Alignment.CenterHorizontally).heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.clip(CircleShape).pressable(scale = 0.96f) { openOutputSwitcher(ctx) }.padding(horizontal = 8.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Ic.Device, null, size = 14.dp, tint = Color.White.copy(alpha = 0.6f))
+            Txt("Playing on " + outputDevice(ctx).first.substringAfter(" · "), Modifier.padding(start = 6.dp), style = TimeStyle, color = Color.White.copy(alpha = 0.6f), maxLines = 1)
+        }
+        QualityTag(onQuality)
+    }
+}
+
+/** Big title: 32 sp title, accent artist; thick seek; prev · wide accent pill · next; shuffle · lyrics · sleep · queue · repeat. */
+@Composable
+private fun ColumnScope.BigTitleControls(ui: PlayerUi, accent: Color, onQuality: () -> Unit, onPipeline: () -> Unit, onSeek: (Float?) -> Unit) {
+    TitleRow(ui, onPipeline, big = true, accent = accent)
+    Spacer(Modifier.height(6.dp))
+    GlassSeek(ui, onQuality, kind = "thick", onSeekDrag = onSeek)
+    Spacer(Modifier.weight(1f))
+    Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally), Alignment.CenterVertically) {
+        SkipBtn(false, 60.dp, 30.dp)
+        PlayBtn(accent, 132.dp, 68.dp, 30.dp)
+        SkipBtn(true, 60.dp, 30.dp)
+    }
+    Spacer(Modifier.weight(1f))
+    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+        ShuffleBtn()
+        PaneAction(Ic.LyricsQuote, "Lyrics", ui.pane == "lyrics") { ui.toggle("lyrics") }
+        PaneAction(Ic.Moon, if (Playback.sleepEndsAt > 0) "Sleep timer on" else "Sleep timer", Playback.sleepEndsAt > 0, onClick = ui.openSleep)
+        PaneAction(Ic.QueueList, "Queue", ui.pane == "queue") { ui.toggle("queue") }
+        RepeatBtn()
+    }
+}
+
+/** Waveform: compact title; the seek bar as bars; transport with a white play; the next song; Lyrics · Sleep · output. */
+@Composable
+private fun ColumnScope.WaveControls(ui: PlayerUi, accent: Color, onQuality: () -> Unit, onPipeline: () -> Unit, onSeek: (Float?) -> Unit) {
+    val ctx = LocalContext.current
+    TitleRow(ui, onPipeline)
+    Spacer(Modifier.height(4.dp))
+    GlassSeek(ui, onQuality, kind = "wave", accent = accent, onSeekDrag = onSeek)
+    Spacer(Modifier.weight(1f))
+    Transport(Color.White)
+    Spacer(Modifier.weight(1f))
+    UpNextCard(ui)
+    Spacer(Modifier.weight(1f))
+    PillRow(Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) { glass ->
+        LabelAction(Ic.LyricsQuote, "Lyrics", ui.pane == "lyrics", glass = glass) { ui.toggle("lyrics") }
+        LabelAction(Ic.Moon, "Sleep", Playback.sleepEndsAt > 0, glass = glass, onClick = ui.openSleep)
+        LabelAction(Ic.Output, outputDevice(ctx).first.substringBefore(" · "), false, glass = glass) { openOutputSwitcher(ctx) }
+    }
+}
+
+/** Play beside title: title + 64 dp accent play; seek with times either side; heart · shuffle · prev · next · repeat · ⋯; a 3-way switch. */
+@Composable
+private fun ColumnScope.BesideControls(ui: PlayerUi, accent: Color, onQuality: () -> Unit, onPipeline: () -> Unit, onSeek: (Float?) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TitleText(ui, Modifier.weight(1f))
+        Spacer(Modifier.width(14.dp))
+        PlayBtn(accent, 64.dp, iconSize = 28.dp)
+    }
+    Spacer(Modifier.weight(1f))
+    GlassSeek(ui, onQuality, kind = "inline", onSeekDrag = onSeek)
+    Spacer(Modifier.weight(1f))
+    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+        LikeBtn(ui)
+        ShuffleBtn()
+        SkipBtn(false, 52.dp, 26.dp)
+        SkipBtn(true, 52.dp, 26.dp)
+        RepeatBtn()
+        PlayerMenu(ui, onPipeline)
+    }
+    Spacer(Modifier.weight(1f))
+    val lq = LocalLiquid.current
+    Row(Modifier.fillMaxWidth().then(if (lq != null) Modifier.liquidGlass(lq, interactive = false, dark = true) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.08f))).padding(3.dp)) {
+        val m = Modifier.weight(1f)
+        LabelAction(null, "Lyrics", ui.pane == "lyrics", m) { ui.toggle("lyrics") }
+        LabelAction(null, "Up next", ui.pane == "queue", m) { ui.toggle("queue") }
+        LabelAction(null, "Sleep", Playback.sleepEndsAt > 0, m, onClick = ui.openSleep)
+    }
+}
+
+/**
+ * Liquid: the pills are one sheet of glass ([LiquidGlassContainer]) that bulges and merges with its neighbour where
+ * pressed; [content] gets each pill's glass modifier (null: frosted, the pills draw their own wash).
+ */
+@Composable
+private fun PillRow(arrangement: Arrangement.Horizontal, content: @Composable androidx.compose.foundation.layout.RowScope.(glass: Modifier?) -> Unit) {
+    val lq = LocalLiquid.current
+    if (lq == null) Row(Modifier.fillMaxWidth(), arrangement) { content(null) }
+    else LiquidGlassContainer(lq, Modifier.fillMaxWidth(), spacing = 12.dp, dark = true) {
+        Row(Modifier.fillMaxWidth(), arrangement) { content(Modifier.glassShape()) }
+    }
+}
+
+/** Liquid, on: a bright inset fill over the glass, so the rim still shows around it (dark text on it). */
+private val LitFill = Color.White.copy(alpha = 0.85f)
+private val OnLit = Color(0xFF141414)
+
+/** A labelled pill button (optional icon); a brighter wash while [on]. The label is what TalkBack reads. [glass]: see [PillRow]. */
+@Composable
+private fun LabelAction(icon: ImageVector?, label: String, on: Boolean, modifier: Modifier = Modifier, fill: Float = 0f, glass: Modifier? = null, onClick: () -> Unit) {
+    val bg by animateColorAsState(Color.White.copy(alpha = if (on) 0.16f else fill), tween(200), label = "labelBg")
+    val fg = if (glass != null && on) OnLit else Color.White.copy(alpha = if (on || fill > 0f || glass != null) 1f else 0.75f)
+    val face = when {
+        glass == null -> Modifier.clip(CircleShape).background(bg)
+        on -> glass.padding(2.dp).clip(CircleShape).background(LitFill)
+        else -> glass
+    }
+    Row(
+        modifier.height(44.dp).then(face).semantics { selected = on }
+            .pressable(scale = 0.96f, onClick = onClick).padding(horizontal = 12.dp),
+        Arrangement.Center, Alignment.CenterVertically,
+    ) {
+        if (icon != null) Icon(icon, null, Modifier.padding(end = 8.dp), size = 17.dp, tint = fg)
+        Txt(label, style = Type.caption.copy(fontSize = 13.sp), color = fg, weight = if (on) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
+    }
+}
+
+/** The song after this one; tap for the queue. */
+@Composable
+private fun UpNextCard(ui: PlayerUi) {
+    // shortcut: the queue's next row, like QueueView shows it; with shuffle on the player may pick another, use the timeline's next index if that matters
+    val next = Playback.queue.getOrNull(Playback.index + 1)
+    val lq = LocalLiquid.current
+    Row(
+        Modifier.fillMaxWidth().then(if (lq != null) Modifier.liquidGlass(lq, 18.dp, dark = true) else Modifier.clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.08f)))
+            .pressable(scale = 0.98f) { ui.toggle("queue") }.padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (next != null) Cover(next, Modifier.padding(end = 12.dp).size(40.dp).clip(RoundedCornerShape(10.dp)))
+        else Spacer(Modifier.width(4.dp).height(40.dp))
+        Column(Modifier.weight(1f)) {
+            Txt("UP NEXT", style = Type.overline.copy(fontSize = 10.sp), color = Color.White.copy(alpha = 0.55f), maxLines = 1)
+            Txt(next?.let { "${it.title} · ${it.artist}" } ?: "End of queue", style = Type.body.copy(fontSize = 14.sp), color = Color.White, weight = FontWeight.SemiBold, maxLines = 1)
+        }
+        Icon(Ic.QueueList, "Open queue", Modifier.padding(horizontal = 10.dp), size = 20.dp, tint = Color.White)
     }
 }
 
@@ -394,18 +635,28 @@ private fun VolumeRow() {
 private fun BottomBar(ui: PlayerUi) {
     val sleeping = Playback.sleepEndsAt > 0
     @Composable fun Divider() = Box(Modifier.size(1.dp, 18.dp).background(Color.White.copy(alpha = 0.2f)))
-    @Composable fun Action(icon: ImageVector, desc: String, on: Boolean, onClick: () -> Unit) {
-        val a by animateFloatAsState(if (on) 1f else 0.75f, tween(200), label = "action")
-        val bg by animateColorAsState(Color.White.copy(alpha = if (on) 0.16f else 0f), tween(200), label = "actionBg")
-        IconBtn(icon, desc, onClick, size = 46.dp, iconSize = 21.dp, tint = Color.White.copy(alpha = a), background = bg)
-    }
-    Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
-        Action(Ic.LyricsQuote, "Lyrics", ui.pane == "lyrics") { ui.toggle("lyrics") }
+    // liquid: the three sit on one glass bar
+    val lq = LocalLiquid.current
+    Row(
+        Modifier.fillMaxWidth().then(if (lq != null) Modifier.liquidGlass(lq, interactive = false, dark = true).padding(vertical = 3.dp) else Modifier),
+        Arrangement.SpaceEvenly, Alignment.CenterVertically,
+    ) {
+        PaneAction(Ic.LyricsQuote, "Lyrics", ui.pane == "lyrics", ownGlass = false) { ui.toggle("lyrics") }
         Divider()
-        Action(Ic.Moon, if (sleeping) "Sleep timer on" else "Sleep timer", sleeping, ui.openSleep)
+        PaneAction(Ic.Moon, if (sleeping) "Sleep timer on" else "Sleep timer", sleeping, ownGlass = false, onClick = ui.openSleep)
         Divider()
-        Action(Ic.QueueList, "Queue", ui.pane == "queue") { ui.toggle("queue") }
+        PaneAction(Ic.QueueList, "Queue", ui.pane == "queue", ownGlass = false) { ui.toggle("queue") }
     }
+}
+
+/** A plain glyph button, brighter with a soft wash while [on]. Liquid ([ownGlass]): a glass circle, bright while [on]. */
+@Composable
+private fun PaneAction(icon: ImageVector, desc: String, on: Boolean, ownGlass: Boolean = true, onClick: () -> Unit) {
+    val a by animateFloatAsState(if (on) 1f else 0.75f, tween(200), label = "action")
+    val bg by animateColorAsState(Color.White.copy(alpha = if (on) 0.16f else 0f), tween(200), label = "actionBg")
+    val lq = LocalLiquid.current?.takeIf { ownGlass }
+    if (lq != null) IconBtn(icon, desc, onClick, Modifier.liquidGlass(lq, tint = if (on) LitFill else null, dark = true), size = 46.dp, iconSize = 21.dp, tint = if (on) OnLit else Color.White)
+    else IconBtn(icon, desc, onClick, size = 46.dp, iconSize = 21.dp, tint = Color.White.copy(alpha = a), background = bg)
 }
 
 /** Android's own "play audio on" picker; older phones get the volume panel or Bluetooth settings. */
@@ -420,10 +671,15 @@ private fun openOutputSwitcher(ctx: Context) {
 /** Sideways phone: the cover on the left, everything else on the right, over a soft blur of the cover. */
 @Composable
 private fun LandscapePlayer(ui: PlayerUi, seekDrag: Float?, onSeekDrag: (Float?) -> Unit) {
+    val liquidOn = Settings.glassStyle == "liquid"
+    val backdrop = rememberLiquidBackdrop()
     Box(Modifier.fillMaxSize()) {
-        Cover(ui.t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.4f; scaleY = 1.4f }.blur(60.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.8f)
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
-        Row(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(32.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.fillMaxSize().then(if (liquidOn) Modifier.liquidBackdrop(backdrop).background(lerp(ui.pal.sea, Color.Black, 0.35f)) else Modifier)) {
+            Cover(ui.t, Modifier.fillMaxSize().graphicsLayer { scaleX = 1.4f; scaleY = 1.4f }.blur(60.dp, BlurredEdgeTreatment.Unbounded), alpha = 0.8f)
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
+        }
+        CompositionLocalProvider(LocalLiquid provides backdrop.takeIf { liquidOn }) {
+        Row(Modifier.fillMaxSize().statusPad().navigationBarsPadding().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(32.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.fillMaxHeight().aspectRatio(1f, matchHeightConstraintsFirst = true)) {
                 when (ui.pane) {
                     "lyrics" -> LyricsView(ui.t, ui.pos)
@@ -446,6 +702,7 @@ private fun LandscapePlayer(ui: PlayerUi, seekDrag: Float?, onSeekDrag: (Float?)
                 Spacer(Modifier.height(4.dp))
                 Transport(ui.pal.hue?.let { hueAccent(it, dark = true) } ?: Color.White, compact = true)
             }
+        }
         }
     }
 }
@@ -533,8 +790,9 @@ private fun SleepBadge(modifier: Modifier) {
         while (end > 0) { value = ((end - System.currentTimeMillis()) / 60_000 + 1).coerceAtLeast(0); delay(20_000) }
     }
     AnimatedVisibility(end > 0, modifier, enter = fadeIn(), exit = fadeOut()) {
+        val lq = LocalLiquid.current
         Row(
-            Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).pressable(scale = 0.96f) { Playback.sleep(0) }
+            Modifier.then(if (lq != null) Modifier.liquidGlass(lq, dark = true) else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.1f))).pressable(scale = 0.96f) { Playback.sleep(0) }
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -568,12 +826,14 @@ private val SoftBase = Color.Black.copy(alpha = 0.16f)
 private fun SoftCircle(icon: ImageVector, label: String, active: Boolean = false, size: Int = 46, onClick: () -> Unit) {
     // plain glyph like the transport and bottom actions; a soft wash only while active
     val bg by animateColorAsState(Color.White.copy(alpha = if (active) 0.16f else 0f), tween(200), label = "soft")
+    // liquid: always a glass circle, bright while active
+    val lq = LocalLiquid.current
     Box(
-        Modifier.size(size.dp).clip(CircleShape).background(bg)
+        Modifier.size(size.dp).then(if (lq != null) Modifier.liquidGlass(lq, tint = if (active) LitFill else null, dark = true) else Modifier.clip(CircleShape).background(bg))
             .semantics { contentDescription = label; selected = active }
             .pressable(scale = 0.9f, onClick = onClick),
         Alignment.Center,
-    ) { Icon(icon, null, size = 22.dp, tint = Color.White.copy(alpha = if (active) 1f else 0.9f)) }
+    ) { Icon(icon, null, size = 22.dp, tint = if (lq != null && active) OnLit else Color.White.copy(alpha = if (active) 1f else 0.9f)) }
 }
 
 /** ⋯ in the player: everything that isn't needed every second lives here. */
@@ -603,19 +863,44 @@ private fun PlayerMenu(ui: PlayerUi, onPipeline: (() -> Unit)? = null) {
 }
 
 /** Thin track with a small dot; while dragging, a bubble shows the time you'd land on. Elapsed left, time left right. */
+/**
+ * [kind]: "thin" (above), "thick" (8 dp, bold times with the total on the right), "inline" (times either side of the bar)
+ * or "wave" (bars, played part in [accent]).
+ */
 @Composable
-private fun GlassSeek(ui: PlayerUi, onQuality: () -> Unit = {}, onSeekDrag: (Float?) -> Unit) {
+private fun GlassSeek(ui: PlayerUi, onQuality: () -> Unit = {}, kind: String = "thin", accent: Color = Color.White, quality: Boolean = true, onSeekDrag: (Float?) -> Unit) {
     val onDrag = onSeekDrag
     var dragging by remember { mutableStateOf<Float?>(null) }
     var width by remember { mutableFloatStateOf(1f) }
     val shown = dragging ?: ui.fraction
     val density = LocalDensity.current
-    Column(Modifier.fillMaxWidth().shared("seek")) {
-    Box(Modifier.fillMaxWidth().onSizeChanged { width = it.width.toFloat() }) {
-        SeekSlider(
-            shown, { dragging = it; onDrag(it) }, { dragging?.let(ui::seekTo); dragging = null; onDrag(null) },
-            color = Color.White, thickness = 3.dp, thumb = true,
-        )
+    val at = (shown * ui.duration).toLong()
+    val bold = kind == "thick"
+    val timeStyle = if (bold) TimeStyle.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold) else TimeStyle
+    val timeColor = Color.White.copy(alpha = if (bold) 0.75f else 0.6f)
+    val end = if (kind == "thick" || kind == "inline") formatTime(ui.duration) else "-" + formatTime(ui.duration - at)
+    val bar = @Composable { m: Modifier ->
+    Box(m.onSizeChanged { width = it.width.toFloat() }) {
+        val change: (Float) -> Unit = { dragging = it; onDrag(it) }
+        val done = { dragging?.let(ui::seekTo); dragging = null; onDrag(null) }
+        if (kind == "wave") {
+            // shortcut: decorative bars seeded by the track id (no real waveform data); draw the real one if it ever appears
+            val heights = remember(ui.t.id) { val r = kotlin.random.Random(ui.t.id.hashCode()); List(56) { 0.22f + 0.78f * r.nextFloat() } }
+            val rest = Color.White.copy(alpha = 0.28f)
+            Canvas(Modifier.fillMaxWidth().height(36.dp)) {
+                val bw = 3.dp.toPx()
+                val step = (size.width - bw) / (heights.size - 1)
+                heights.forEachIndexed { i, h ->
+                    val bh = size.height * h
+                    drawRoundRect(
+                        if ((i + 0.5f) / heights.size <= shown) accent else rest,
+                        androidx.compose.ui.geometry.Offset(i * step, (size.height - bh) / 2), androidx.compose.ui.geometry.Size(bw, bh),
+                        androidx.compose.ui.geometry.CornerRadius(bw / 2),
+                    )
+                }
+            }
+            SeekSlider(shown, change, done, color = Color.Transparent) // invisible: just the touch, drag and accessibility handling
+        } else SeekSlider(shown, change, done, color = Color.White, thickness = if (bold) 8.dp else 3.dp, thumb = !bold)
         dragging?.let { f ->
             val bubbleW = with(density) { 60.dp.toPx() }
             Box(
@@ -625,13 +910,21 @@ private fun GlassSeek(ui: PlayerUi, onQuality: () -> Unit = {}, onSeekDrag: (Flo
             ) { Txt(formatTime((f * ui.duration).toLong()), style = TimeStyle, color = Color(0xFF1A1210), weight = FontWeight.SemiBold) }
         }
     }
-    Row(Modifier.fillMaxWidth()) {
-        val at = (shown * ui.duration).toLong()
-        Txt(formatTime(at), style = TimeStyle, color = Color.White.copy(alpha = 0.6f))
-        // the stream quality, tiny, between the times; tap it for the whole audio pipeline
-        Box(Modifier.weight(1f), Alignment.Center) { QualityTag(onQuality) }
-        Txt("-" + formatTime(ui.duration - at), style = TimeStyle, color = Color.White.copy(alpha = 0.6f))
     }
+    Column(Modifier.fillMaxWidth().shared("seek")) {
+        if (kind == "inline") Row(verticalAlignment = Alignment.CenterVertically) {
+            Txt(formatTime(at), style = timeStyle, color = timeColor)
+            bar(Modifier.weight(1f).padding(horizontal = 12.dp))
+            Txt(end, style = timeStyle, color = timeColor)
+        } else {
+            bar(Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth()) {
+                Txt(formatTime(at), style = timeStyle, color = timeColor)
+                // the stream quality, tiny, between the times; tap it for the whole audio pipeline
+                Box(Modifier.weight(1f), Alignment.Center) { if (quality) QualityTag(onQuality) }
+                Txt(end, style = timeStyle, color = timeColor)
+            }
+        }
     }
 }
 
@@ -671,46 +964,48 @@ private fun QualityTag(onClick: () -> Unit) {
 }
 
 /**
- * Lyrics or queue, immersive: the panel fills the screen; at the bottom a slim bar with title and artist,
- * play/pause and a button to close the panel, then the seek bar. Everything else steps aside.
+ * Lyrics or queue, immersive: the panel fills the screen; at the bottom the now bar (cover ring play/pause,
+ * title capsule back to the cover, and the panel's options). Everything else steps aside.
  */
 @Composable
-private fun ImmersivePane(ui: PlayerUi, onQuality: () -> Unit, onSeekDrag: (Float?) -> Unit) {
-    val playing = Playback.playing
-    // swipe the bottom bar sideways to change song (the panel above keeps its own scrolling and swipes)
-    val swipe = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
-    val limit = with(LocalDensity.current) { 80.dp.toPx() }
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (ui.pane == "lyrics") LyricsView(ui.t, ui.pos) else QueueView(Modifier.fillMaxSize().padding(top = 8.dp))
-        }
-        Spacer(Modifier.height(12.dp))
-        Row(
-            Modifier.graphicsLayer { translationX = swipe.value * 0.6f; alpha = 1f - (kotlin.math.abs(swipe.value) / (limit * 4)).coerceIn(0f, 0.5f) }
-                .pointerInput(ui.t.id) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            when { swipe.value < -limit -> Playback.next(); swipe.value > limit -> Playback.prev() }
-                            scope.launch { swipe.animateTo(0f, spring(dampingRatio = 0.8f)) }
-                        },
-                        onDragCancel = { scope.launch { swipe.animateTo(0f) } },
-                    ) { change, dx -> change.consume(); scope.launch { swipe.snapTo(swipe.value + dx) } }
-                },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Cover(ui.t, Modifier.size(46.dp).shadow(8.dp, RoundedCornerShape(10.dp)).clip(RoundedCornerShape(10.dp)))
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Txt(ui.t.title, Modifier.shared("title", text = true).basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000), style = Type.headline, weight = FontWeight.Bold, maxLines = 1)
-                Txt(ui.t.artist, Modifier.shared("artist", text = true), style = Type.caption, color = Color.White.copy(alpha = 0.7f), maxLines = 1)
+private fun ImmersivePane(ui: PlayerUi) {
+    val lyrics = ui.pane == "lyrics"
+    var tray by remember { mutableStateOf(false) }
+    // the content fades out above the now bar (76 dp) and, while it's open, its pill tray; only the fade moves, never the layout
+    val clear by animateDpAsState(if (tray) 176.dp else 124.dp, tween(250), label = "clear")
+    // liquid: the now bar looks through the panel (lyrics / queue scrolling under it) on top of the player background;
+    // glass inside the panel itself looks at the background only, so nothing records itself
+    val bgGlass = LocalLiquid.current
+    val paneGlass = rememberLiquidBackdrop(under = bgGlass)
+    Box(Modifier.fillMaxSize().statusPad().navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().then(if (bgGlass != null) Modifier.liquidBackdrop(paneGlass) else Modifier)) {
+            // back · "Queue" over "Playing from …" / "Lyrics"
+            Row(Modifier.fillMaxWidth().height(56.dp).padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconBtn(Ic.Back, "Back to Now Playing", { ui.setPane("art") }, bgGlass?.let { Modifier.liquidGlass(it, dark = true) } ?: Modifier, size = 48.dp, iconSize = 22.dp, tint = Color.White)
+                Column(Modifier.padding(start = 2.dp).semantics(mergeDescendants = true) { heading() }) {
+                    Txt(if (lyrics) "Lyrics" else "Queue", style = Type.bodyStrong.copy(fontSize = 17.sp, lineHeight = 22.sp), color = Color.White, weight = FontWeight.SemiBold, maxLines = 1)
+                    if (!lyrics) Playback.from?.let { (_, name) ->
+                        Txt("Playing from $name", style = Type.caption.copy(fontSize = 12.sp, lineHeight = 16.sp), color = Color.White.copy(alpha = 0.6f), maxLines = 1)
+                    }
+                }
             }
-            IconBtn(if (playing) Ic.Pause else Ic.Play, if (playing) "Pause" else "Play", Playback::toggle, Modifier.shared("play"), size = 52.dp, iconSize = 30.dp, haptic = true)
-            Spacer(Modifier.width(6.dp))
-            SoftCircle(Ic.Collapse, if (ui.pane == "lyrics") "Close lyrics" else "Close queue", size = 44) { ui.setPane("art") }
+            Box(
+                Modifier.weight(1f).fillMaxWidth()
+                    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        val h = size.height
+                        val top = (if (lyrics) 72.dp else 16.dp).toPx() / h
+                        val end = 1f - clear.toPx() / h
+                        drawRect(Brush.verticalGradient(0f to Color.Transparent, top to Color.Black, (end - 110.dp.toPx() / h).coerceAtLeast(top) to Color.Black, end to Color.Transparent), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+                    }
+                    .padding(start = if (lyrics) 28.dp else 16.dp, end = if (lyrics) 32.dp else 16.dp),
+            ) {
+                if (lyrics) LyricsView(ui.t, ui.pos, tools = false) else QueueView(Modifier.fillMaxSize(), tools = false)
+            }
         }
-        Spacer(Modifier.height(10.dp))
-        GlassSeek(ui, onQuality = onQuality, onSeekDrag = onSeekDrag)
+        // the now bar floats over the panel's faded bottom; its options tray opens upward over it, so nothing moves
+        NowBar(ui.t, ui.pane, onOpen = { ui.setPane("art") }, modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 14.dp, vertical = 12.dp), liquid = paneGlass.takeIf { bgGlass != null }, onTray = { tray = it })
     }
 }
 
@@ -723,7 +1018,7 @@ private val LocalShared = compositionLocalOf<SharedScopes?> { null }
 /** Marks a part that exists in both layouts (title, artist, play, seek); it morphs instead of fading. No-op elsewhere. */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun Modifier.shared(key: String, text: Boolean = false): Modifier {
+internal fun Modifier.shared(key: String, text: Boolean = false): Modifier {
     val s = LocalShared.current ?: return this
     return with(s.transition) {
         this@shared.sharedBounds(

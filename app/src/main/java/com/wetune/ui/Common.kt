@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -76,10 +78,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** Room left at the bottom of every list for the floating mini-player and nav. */
-val BottomSpace = 180.dp
+val BottomSpace = 184.dp
+
+/** Status bar height even while it's hidden (Now Playing hides it), so screens don't shift when it comes and goes. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun statusBarHeight(): androidx.compose.ui.unit.Dp =
+    WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding()
+
+/** Top padding for the status bar, kept even while it's hidden. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun Modifier.statusPad(): Modifier = windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)
 
 @Composable
-fun listPadding() = PaddingValues(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp, bottom = BottomSpace)
+fun listPadding() = PaddingValues(top = statusBarHeight() + 8.dp, bottom = BottomSpace)
 
 /** Loads [load] on IO when [key] changes; shows [placeholder], an error with Retry, or [content]. */
 @Composable
@@ -437,7 +450,7 @@ fun PullRefresh(refreshing: Boolean, onRefresh: () -> Unit, modifier: Modifier =
     }
     Box(modifier.fillMaxSize().nestedScroll(conn)) {
         Box(Modifier.fillMaxSize().graphicsLayer { translationY = pull }) { content() }
-        val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val top = statusBarHeight()
         Box(
             Modifier.align(Alignment.TopCenter).padding(top = top).graphicsLayer {
                 val p = (pull / trigger).coerceIn(0f, 1f)

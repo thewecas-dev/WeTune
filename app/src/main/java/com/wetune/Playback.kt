@@ -171,6 +171,7 @@ object Playback {
     fun skipTo(i: Int) = c?.seekTo(i, 0)
     fun remove(i: Int) = c?.removeMediaItem(i)
     fun move(from: Int, to: Int) = c?.moveMediaItem(from, to)
+    fun insert(i: Int, t: Track) = c?.let { it.addMediaItem(i.coerceIn(0, it.mediaItemCount), t.toMediaItem()) }
     fun toggleShuffle() = c?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
 
     /** off → all → one → off */

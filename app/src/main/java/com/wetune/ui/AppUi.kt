@@ -77,6 +77,10 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import dev.chrisbanes.haze.HazeState
+import com.wetune.Settings
+import com.wetune.ui.glass.LiquidBackdrop
+import com.wetune.ui.glass.LiquidGlassContainer
+import com.wetune.ui.glass.liquidBackdrop
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
@@ -95,6 +99,7 @@ fun AppUi() {
     val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     val haze = remember { HazeState() }
+    val liquid = com.wetune.ui.glass.rememberLiquidBackdrop()
     val style = glassStyle()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val art = Playback.current?.art
@@ -105,7 +110,7 @@ fun AppUi() {
     BackHandler(playerOpen || stack.size > 1) { if (playerOpen) playerOpen = false else back() }
 
     Box(Modifier.fillMaxSize().background(WT.c.bg)) {
-        Box(Modifier.fillMaxSize().hazeSource(haze)) {
+        Box(Modifier.fillMaxSize().hazeSource(haze).liquidBackdrop(liquid)) {
             // The playing song's colors glow softly behind the top of the main tabs.
             if (stack.size == 1 && art != null) coil3.compose.AsyncImage(
                 art, null,
@@ -151,7 +156,7 @@ fun AppUi() {
             }
         }
         // A soft fade behind the status bar (no hard edge) so scrolled content doesn't clash with the clock and icons.
-        val statusH = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val statusH = statusBarHeight()
         Box(Modifier.fillMaxWidth().height(statusH + 28.dp).background(Brush.verticalGradient(listOf(WT.c.bg.copy(alpha = 0.7f), WT.c.bg.copy(alpha = 0.35f), Color.Transparent))))
         Column(
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -163,8 +168,8 @@ fun AppUi() {
                 Playback.current != null,
                 enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(tween(200)),
                 exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(160)),
-            ) { MiniPlayer(haze, style) { playerOpen = true } }
-            NavBar(haze, style, stack.first()) { tab ->
+            ) { Playback.current?.let { NowBar(it, "open", onOpen = { playerOpen = true }, haze = haze, liquid = liquid) } }
+            NavBar(haze, style, liquid, stack.first()) { tab ->
                 stack.clear()
                 stack.add(tab)
             }
@@ -188,61 +193,23 @@ fun AppUi() {
     }
 }
 
-@Composable
-private fun MiniPlayer(haze: HazeState, style: HazeStyle, onOpen: () -> Unit) {
-    val t = Playback.current ?: return
-    val c = WT.c
-    val pos by rememberPosition()
-    val duration = Playback.duration().takeIf { it > 0 } ?: t.durationMs
-    val fraction = if (duration > 0) (pos.toFloat() / duration).coerceIn(0f, 1f) else 0f
-    var drag by remember { mutableFloatStateOf(0f) }
-    val shape = RoundedCornerShape(32.dp)
-    Box(
-        Modifier.fillMaxWidth().height(64.dp).glass(haze, style, shape)
-            .drawBehind {
-                // thin progress line along the bottom edge, inset from the rounded ends
-                val inset = 28.dp.toPx()
-                val w = size.width - inset * 2
-                val y = size.height - 2.dp.toPx()
-                drawRect(c.text.copy(alpha = 0.15f), Offset(inset, y), Size(w, 2.dp.toPx()))
-                drawRect(c.text, Offset(inset, y), Size(w * fraction, 2.dp.toPx()))
-            }
-            .pointerInput(t.id) {
-                detectHorizontalDragGestures(onDragEnd = {
-                    when {
-                        drag < -80.dp.toPx() -> Playback.next()
-                        drag > 80.dp.toPx() -> Playback.prev()
-                    }
-                    drag = 0f
-                }) { _, amount -> drag += amount }
-            }
-            .semantics { contentDescription = "Now playing ${t.title}. Swipe left or right to skip." },
-    ) {
-        Row(
-            Modifier.fillMaxSize().offset { IntOffset((drag / 3).roundToInt(), 0) }.pressable(scale = 0.98f, onClick = onOpen).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Art(t.art, Modifier.size(48.dp), CircleShape)
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Txt(t.title, style = Type.bodyStrong, weight = FontWeight.SemiBold, maxLines = 1)
-                Txt(t.artist, style = Type.caption, color = WT.c.muted, maxLines = 1)
-            }
-            IconBtn(if (Playback.playing) Ic.Pause else Ic.Play, if (Playback.playing) "Pause" else "Play", Playback::toggle)
-            IconBtn(Ic.Next, "Next", { Playback.next() })
-        }
-    }
-}
-
 /** N1: a glass bar only as wide as its tabs; the active tab is a solid pill with its label. Search glows beside it. */
 @Composable
-private fun NavBar(haze: HazeState, style: HazeStyle, root: Screen, onTab: (Screen) -> Unit) {
+private fun NavBar(haze: HazeState, style: HazeStyle, liquid: LiquidBackdrop, root: Screen, onTab: (Screen) -> Unit) {
+    // Liquid: the bar and Search are one sheet of glass, so pressing one swells it toward the other and they melt together.
+    if (Settings.glassStyle == "liquid") LiquidGlassContainer(liquid, spacing = 14.dp) { NavRow(Modifier.glassShape(), Modifier.glassShape(), root, onTab) }
+    else NavRow(Modifier.glass(haze, style, CircleShape), Modifier.glass(haze, style, CircleShape), root, onTab)
+}
+
+@Composable
+private fun NavRow(barGlass: Modifier, searchGlass: Modifier, root: Screen, onTab: (Screen) -> Unit) {
     val c = WT.c
     val pillBg = if (c.dark) Color.White else Color(0xFF1C1C1E)
     val pillFg = if (c.dark) Color(0xFF111111) else Color.White
     val idle = c.text.copy(alpha = 0.72f)
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(
-            Modifier.height(66.dp).glass(haze, style, CircleShape).padding(horizontal = 6.dp).animateContentSize(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)),
+            Modifier.height(66.dp).then(barGlass).padding(horizontal = 6.dp).animateContentSize(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             tabs.forEach { tab ->
@@ -263,7 +230,7 @@ private fun NavBar(haze: HazeState, style: HazeStyle, root: Screen, onTab: (Scre
         }
         val searching = root == Screen.Search
         Box(
-            Modifier.size(66.dp).glass(haze, style, CircleShape).then(if (searching) Modifier.background(pillBg) else Modifier)
+            Modifier.size(66.dp).then(searchGlass).then(if (searching) Modifier.clip(CircleShape).background(pillBg) else Modifier)
                 .semantics { this.selected = searching; contentDescription = "Search" }
                 .pressable(scale = 0.92f, role = Role.Tab) { onTab(Screen.Search) },
             Alignment.Center,

@@ -34,7 +34,7 @@ private const val LOGIN_URL = "https://accounts.google.com/ServiceLogin?ltmpl=mu
 fun LoginScreen(back: () -> Unit) {
     val bg = WT.c.bg.toArgb()
     androidx.activity.compose.BackHandler(onBack = back)
-    Column(Modifier.fillMaxSize().background(WT.c.bg).statusBarsPadding().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(WT.c.bg).statusPad().navigationBarsPadding()) {
         IconBtn(Ic.Back, "Back", back)
         AndroidView(
             modifier = Modifier.weight(1f),

@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -76,7 +77,7 @@ fun CollectionPage(
     val hue = rememberArtTint(art)?.let { tint -> FloatArray(3).also { android.graphics.Color.colorToHSV(tint.toArgb(), it) }[0] }
     val accent by animateColorAsState(hue?.let { hueAccent(it, c.dark) } ?: c.text, tween(500), label = "pageAccent")
     val wash by animateColorAsState(hue?.let { Color.hsl(it, 0.35f, if (c.dark) 0.16f else 0.9f) } ?: c.bg, tween(500), label = "pageWash")
-    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val statusTop = statusBarHeight()
     // the title bar shows once the poster has scrolled under it
     val barAlpha by remember {
         derivedStateOf {
@@ -89,7 +90,8 @@ fun CollectionPage(
         Box(Modifier.fillMaxWidth().height(720.dp).background(Brush.verticalGradient(listOf(wash, c.bg))))
         LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = BottomSpace)) {
             item(key = "poster") {
-                Box(Modifier.fillMaxWidth().aspectRatio(if (kind == PageKind.Artist) 0.92f else 1f)) {
+                // clipped: the parallax moves the image down, and it must not spill over the rows below
+                Box(Modifier.fillMaxWidth().aspectRatio(if (kind == PageKind.Artist) 0.92f else 1f).clipToBounds()) {
                     AsyncImage(
                         art, null,
                         Modifier.fillMaxSize().graphicsLayer {

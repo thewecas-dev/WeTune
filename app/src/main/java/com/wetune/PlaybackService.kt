@@ -254,7 +254,8 @@ class PlaybackService : MediaSessionService() {
         scope.launch {
             val have = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }.toSet()
             suspend fun radio(id: String) = withContext(Dispatchers.IO) { runCatching { YouTube.radio(id) }.getOrDefault(emptyList()) }.filter { it.id !in have }
-            val more = seed?.let { radio(it) }.orEmpty().ifEmpty { radio(t.ref) }
+            val more = if (Settings.autoplayMix == "artist") withContext(Dispatchers.IO) { runCatching { YouTube.byArtist(t.artist) }.getOrDefault(emptyList()) }.filter { it.id !in have }
+                else seed?.let { radio(it) }.orEmpty().ifEmpty { radio(t.ref) }
             player.addMediaItems(more.map { it.toMediaItem() })
         }
     }

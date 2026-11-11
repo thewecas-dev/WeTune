@@ -65,6 +65,7 @@ object Ic {
     val ArrowDown by lazy { line("arrow_down", "M12 5v14M6 13l6 6 6-6") }
     val Clock by lazy { line("clock", "M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16zM12 8v4l3 2") }
     val Versions by lazy { line("versions", "M7 4.5h10M5 8h14M4.5 11.5h15v8h-15z") }
+    val LinesSynced by lazy { line("lines_synced", "M4 7h.01M4 12h.01M4 17h.01M8 7h12M8 12h12M8 17h8") } // timestamp dots beside lines: line-synced lyrics
     val Karaoke by lazy { line("karaoke", "M8 14l4-9 4 9M9.5 11h5M5 18.5h7M14 18.5h5") } // a letter over a part-filled bar: word-by-word lyrics
     val Latin by lazy { line("latin", "M4 18l4.5-12L13 18M5.7 14h5.6M15 12.5a2.8 2.8 0 1 1 0 5.5h-.2M17.8 12v6") }
     val Collapse by lazy { line("collapse", "M8 9l4-4 4 4M8 15l4 4 4-4") }
@@ -73,5 +74,7 @@ object Ic {
     val Volume by lazy { icon("volume", "M3 10v4c0 .55.45 1 1 1h3l3.29 3.29c.63.63 1.71.18 1.71-.71V6.41c0-.89-1.08-1.34-1.71-.71L7 9H4c-.55 0-1 .45-1 1zm13.5 2c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 4.45v.2c0 .38.25.71.6.85C17.18 6.53 19 9.06 19 12s-1.82 5.47-4.4 6.5c-.36.14-.6.47-.6.85v.2c0 .63.63 1.07 1.21.85C18.6 19.11 21 15.84 21 12s-2.4-7.11-5.79-8.4c-.58-.23-1.21.22-1.21.85z") }
     val Moon by lazy { line("moon", "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z") }
     val Delete by lazy { icon("delete", "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z") }
+    val ChevronUp by lazy { line("chevron_up", "M6 15l6-6 6 6") }
+    val Minus by lazy { line("minus", "M5 12h14") }
     val Plus by lazy { icon("plus", "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z") }
 }

@@ -190,7 +190,7 @@ fun SearchScreen(open: (Screen) -> Unit) {
         if (submitted.isNotBlank()) Settings.addRecentSearch(submitted)
     }
     androidx.compose.runtime.LaunchedEffect(SearchRequest.query) { SearchRequest.query?.let { submit(it); SearchRequest.query = null } }
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+    Column(Modifier.fillMaxSize().statusPad()) {
         Header("Search")
         Field(
             query, { query = it }, "Songs, artists, albums",
@@ -291,7 +291,7 @@ fun LibraryScreen(open: (Screen) -> Unit) {
     var creating by remember { mutableStateOf(false) }
     val signedIn = InnerTube.signedIn
     val openCard: (Card) -> Unit = { open(Screen.Yt(it)) }
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+    Column(Modifier.fillMaxSize().statusPad()) {
         Header("Library") {
             if (tab == "playlists") IconBtn(Ic.Add, "New playlist", { creating = true })
             // refresh this tab (lists are otherwise kept for the session, and fetched fresh when the app starts)

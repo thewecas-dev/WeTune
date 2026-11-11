@@ -2,12 +2,24 @@ package com.wetune
 
 import android.content.Context
 import androidx.compose.runtime.mutableStateMapOf
+import com.wetune.lyrics.Query
+import com.wetune.lyrics.diff
+import com.wetune.lyrics.kugou
+import com.wetune.lyrics.lrcRed
+import com.wetune.lyrics.netease
+import com.wetune.lyrics.youtubeMusic
 import com.wetune.sources.Track
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
-/** Lyrics from LRCLIB: every matching version (synced first), cached per song, with a per-song timing offset. */
+/**
+ * Lyrics from several providers (BetterLyrics, LRCLIB, lrc.red, KuGou, NetEase, YouTube Music), asked at once: every
+ * version found (word-timed first, then line-synced, then plain), cached per song, with a per-song timing offset.
+ */
 object Lyrics {
     /** One sung word (or syllable): when it starts and ends; [text] keeps its trailing space when one follows. */
     data class Word(val ms: Long, val endMs: Long, val text: String)
@@ -18,7 +30,7 @@ object Lyrics {
     /** One set of lyrics a provider has for a song. [words] = timed word by word. */
     data class Version(
         val id: Long, val title: String, val artist: String, val album: String, val synced: Boolean, val lines: List<Line>,
-        val source: String = "LRCLIB", val words: Boolean = false,
+        val source: String = "LRCLIB", val words: Boolean = false, val durationMs: Long = 0,
     )
 
     private val TAG = Regex("\\[(\\d+):(\\d+(?:[.:]\\d+)?)]")
@@ -64,24 +76,49 @@ object Lyrics {
     // the next look (the next play or reopening the player) asks again instead of remembering "no lyrics"
     private val troubled = ConcurrentHashMap.newKeySet<String>()
 
+    // lookups block on the network, so each provider gets its own thread (the shared ForkJoin pool can be one thread wide)
+    private val pool = Executors.newCachedThreadPool()
+
     private fun load(t: Track): List<Version> {
-        // BetterLyrics (word-by-word timing for many songs) and LRCLIB, asked at the same time
-        val better = java.util.concurrent.CompletableFuture.supplyAsync { runCatching { betterLyrics(t) }.getOrNull() }
-        val lrclib = lrclib(t) { troubled.add(t.id) }
-        val all = listOfNotNull(runCatching { better.get(12, java.util.concurrent.TimeUnit.SECONDS) }.getOrNull()) + lrclib
-        // word-synced first (when that style is on), then line-synced, then plain
-        return all.sortedWith(compareByDescending<Version> { it.words && Settings.lyricsWords }.thenByDescending { it.synced }).take(12)
+        val q = Query.of(t)
+        val jobs: List<() -> List<Version>> = listOf(
+            { listOfNotNull(betterLyrics(q, t.album)) },
+            { lrclib(t, q) { troubled.add(t.id) } },
+            { listOfNotNull(lrcRed(q)) },
+            { listOfNotNull(kugou(q)) },
+            { listOfNotNull(netease(q)) },
+            { listOfNotNull(youtubeMusic(t)) },
+        )
+        val futures = jobs.map { job -> pool.submit(Callable { runCatching(job).getOrDefault(emptyList()) }) }
+        val start = System.currentTimeMillis()
+        fun collect(budgetMs: Long) = futures.flatMap { f ->
+            runCatching { f.get((start + budgetMs - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS) }.getOrDefault(emptyList())
+        }
+        // what arrived within 4 s; only when nothing did, wait longer for the slow ones (a bad network)
+        val found = collect(4_000).ifEmpty { collect(15_000) }
+        if (found.isEmpty() && futures.any { !it.isDone }) troubled.add(t.id)
+        return rank(found, t.durationMs, Settings.lyricsWords)
     }
 
+    /** Word-timed first (when [words] style is on), then line-synced, then plain; closest in length first; repeats dropped. */
+    fun rank(all: List<Version>, durationMs: Long, words: Boolean): List<Version> = all
+        .sortedWith(compareByDescending<Version> { it.words && words }.thenByDescending { it.synced }.thenBy { diff(it.durationMs, durationMs) })
+        .distinctBy { v -> Triple(v.words, v.synced, v.lines.joinToString("\n") { Query.norm(it.text) }) }
+        .take(15)
+
     /** BetterLyrics: Apple-Music-style TTML, timed word by word ("Word"), by line ("Line"), or not at all. */
-    private fun betterLyrics(t: Track): Version? {
-        val artist = t.artist.substringBefore(',').trim()
-        val url = "https://lyrics-api.boidu.dev/getLyrics?s=${t.title.urlEncode()}&a=${artist.urlEncode()}" +
-            (if (t.durationMs > 0) "&d=${t.durationMs / 1000}" else "") + (if (t.album.isNotBlank()) "&al=${t.album.urlEncode()}" else "")
-        val ttml = JSONObject(httpGet(url)).str("ttml") ?: return null
+    private fun betterLyrics(q: Query, album: String): Version? {
+        fun url(withLength: Boolean) = "https://lyrics-api.boidu.dev/getLyrics?s=${q.title.urlEncode()}&a=${q.artist.urlEncode()}" +
+            (if (withLength && q.durationMs > 0) "&d=${q.durationMs / 1000}" else "") + (if (album.isNotBlank()) "&al=${album.urlEncode()}" else "")
+        // it only accepts a length within 2 s; music videos run longer than the song, so ask again without it
+        var length = q.durationMs
+        val body = runCatching { httpGet(url(true)) }.getOrElse { e ->
+            if (e.message?.contains("(404)") == true && length > 0) httpGet(url(false)).also { length = 0 } else throw e
+        }
+        val ttml = JSONObject(body).str("ttml") ?: return null
         val lines = parseTtml(ttml).takeIf { it.isNotEmpty() } ?: return null
         val words = lines.any { it.words != null }
-        return Version(-1, t.title, artist, t.album, lines.first().ms >= 0, lines, source = "BetterLyrics", words = words)
+        return Version(-1, q.title, q.artist, album, lines.first().ms >= 0, lines, source = "BetterLyrics", words = words, durationMs = length)
     }
 
     private val P = Regex("""<p\b([^>]*)>(.*?)</p>""", RegexOption.DOT_MATCHES_ALL)
@@ -90,8 +127,9 @@ object Lyrics {
 
     /** Lines (and words, when timed per word) from a TTML document. */
     fun parseTtml(ttml: String): List<Line> {
-        val wordTimed = Regex("""itunes:timing="Word"""").containsMatchIn(ttml)
-        val untimed = Regex("""itunes:timing="None"""").containsMatchIn(ttml)
+        // itunes:timing (BetterLyrics) or lrc:timing (lrc.red)
+        val wordTimed = Regex("""\w+:timing="Word"""").containsMatchIn(ttml)
+        val untimed = Regex("""\w+:timing="None"""").containsMatchIn(ttml)
         return P.findAll(ttml).mapNotNull { p ->
             val attrs = p.groupValues[1]; val body = p.groupValues[2]
             val begin = attr(attrs, "begin")?.let(::ttmlTime); val end = attr(attrs, "end")?.let(::ttmlTime) ?: -1
@@ -117,24 +155,25 @@ object Lyrics {
 
     private fun unescape(s: String) = s.replace("&amp;", "&").replace("&apos;", "'").replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">")
 
-    private fun lrclib(t: Track, onTrouble: () -> Unit): List<Version> {
+    private fun lrclib(t: Track, query: Query, onTrouble: () -> Unit): List<Version> {
         // LRCLIB answers 404 when it simply has no lyrics; anything else (busy, timeout, offline) is trouble
         fun trouble(e: Throwable) { if (e.message?.contains("(404)") != true) onTrouble() }
         val api = "https://lrclib.net/api"
-        val artist = t.artist.substringBefore(',').trim()
-        fun q(title: String) = "track_name=${title.urlEncode()}&artist_name=${artist.urlEncode()}"
+        fun q(title: String) = "track_name=${title.urlEncode()}&artist_name=${query.artist.urlEncode()}"
         val exact = if (t.durationMs > 0) runCatching {
-            JSONObject(httpGet("$api/get?${q(t.title)}&album_name=${t.album.urlEncode()}&duration=${t.durationMs / 1000}"))
+            JSONObject(httpGet("$api/get?${q(query.title)}&album_name=${t.album.urlEncode()}&duration=${t.durationMs / 1000}"))
         }.onFailure(::trouble).getOrNull() else null
         fun search(title: String) = runCatching { JSONArray(httpGet("$api/search?${q(title)}")).objects() }.onFailure(::trouble).getOrDefault(emptyList())
         // film songs are often titled "Song (From \"Movie\")"; search with just the song name too
-        val bare = t.title.replace(Regex("""\s*[(\[][^)\]]*[)\]]"""), "").trim()
-        val found = listOfNotNull(exact) + search(t.title) + (if (bare.isNotBlank() && bare != t.title) search(bare) else emptyList())
+        val found = listOfNotNull(exact) + search(query.title) + (if (query.bare != query.title) search(query.bare) else emptyList())
         return found.distinctBy { it.optLong("id") }.mapNotNull { o ->
             val synced = o.str("syncedLyrics")?.let(::parseLrc)?.takeIf { it.isNotEmpty() }
             val lines = synced ?: o.str("plainLyrics")?.lines()?.map { Line(-1, it) } ?: return@mapNotNull null
-            Version(o.optLong("id"), o.optString("trackName"), o.optString("artistName"), o.optString("albumName"), synced != null, lines)
+            Version(o.optLong("id"), o.optString("trackName"), o.optString("artistName"), o.optString("albumName"), synced != null, lines,
+                durationMs = (o.optDouble("duration", 0.0) * 1000).toLong())
         }
+            // LRCLIB often holds a dozen uploads of one song; keep the closest few so the other providers still show
+            .sortedWith(compareByDescending<Version> { it.synced }.thenBy { diff(it.durationMs, t.durationMs) }).take(6)
     }
 
     /** Blocking. The chosen version's lines for [t], or empty when nothing was found. */

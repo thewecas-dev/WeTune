@@ -79,6 +79,12 @@ object YouTube : Source {
         setOf(PANEL),
     ).tracks.filter { it.ref != videoId }
 
+    /** Blocking. Songs by [artist] (its first name when several), for autoplay's "Same artist". */
+    fun byArtist(artist: String): List<Track> {
+        val name = artist.substringBefore(",").trim()
+        return if (name.isEmpty()) emptyList() else search(name).filter { it.artist.contains(name, ignoreCase = true) }
+    }
+
     /** Blocking. The artist and album pages song [videoId] links to (for "Go to artist / album"). */
     fun links(videoId: String): List<Card> {
         val r = InnerTube.post("next", JSONObject().put("videoId", videoId).put("isAudioOnly", true))
