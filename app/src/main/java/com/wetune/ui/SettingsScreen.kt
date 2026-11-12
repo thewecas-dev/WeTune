@@ -78,12 +78,11 @@ fun SettingsScreen(open: (Screen) -> Unit) {
 
 @Composable
 fun SettingsPageScreen(id: String, open: (Screen) -> Unit, back: () -> Unit) {
-    val title = pages.firstOrNull { it.id == id }?.title ?: if (id == "glasslab") "Liquid glass" else "Settings"
+    val title = pages.firstOrNull { it.id == id }?.title ?: "Settings"
     PageFrame(title, back) {
         when (id) {
             "account" -> AccountPage(open)
-            "appearance" -> AppearancePage(open)
-            "glasslab" -> com.wetune.ui.glass.LiquidGlassLab()
+            "appearance" -> AppearancePage()
             "playback" -> PlaybackPage()
             "sources" -> SourcesPage()
             "backup" -> BackupPage()
@@ -127,30 +126,12 @@ private fun AccountPage(open: (Screen) -> Unit) {
 }
 
 @Composable
-private fun AppearancePage(open: (Screen) -> Unit) {
+private fun AppearancePage() {
     Group("Theme") {
         Segmented(
             listOf("system" to "System", "light" to "Light", "dark" to "Dark", "black" to "Black"),
             Settings.theme, { Settings.theme = it }, Modifier.padding(12.dp),
         )
-    }
-    Group("Glass style") {
-        Column(Modifier.padding(12.dp)) {
-            Segmented(listOf("frosted" to "Frosted", "liquid" to "Liquid"), Settings.glassStyle, { Settings.glassStyle = it })
-            Txt(
-                if (Settings.glassStyle == "liquid") "The tab bar, mini player and Now Playing controls are lenses of glass: they bend and magnify what's behind them, with a light rim, and squash like jelly when pressed." +
-                    (if (android.os.Build.VERSION.SDK_INT < 33) " The bending needs Android 13; here it's blurred glass with the rim." else "")
-                else "The tab bar and mini player are softly blurred, frosted glass.",
-                Modifier.padding(start = 4.dp, top = 10.dp), style = Type.caption, color = WT.c.muted,
-            )
-        }
-        if (Settings.glassStyle == "liquid") {
-            ToggleRow("Reduce transparency", "Liquid glass becomes a near-solid surface", Settings.glassSolid) { Settings.glassSolid = it }
-            Divider(Modifier.padding(start = 16.dp))
-            SettingRow("Liquid glass preview", "Every glass element over a busy background", onClick = { open(Screen.SettingsPage("glasslab")) }) {
-                Icon(Ic.Chevron, null, size = 20.dp, tint = WT.c.muted)
-            }
-        }
     }
     Group("Accent color") {
         ToggleRow("Match the song", "Buttons, pills and highlights take their color from the current cover", Settings.matchAccent) { Settings.matchAccent = it }

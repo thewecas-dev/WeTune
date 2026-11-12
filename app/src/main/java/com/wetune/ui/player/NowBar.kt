@@ -68,14 +68,6 @@ import com.wetune.Playback
 import com.wetune.Settings
 import com.wetune.rememberPosition
 import com.wetune.sources.Track
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.graphics.TransformOrigin
-import com.wetune.ui.glass.LiquidBackdrop
-import com.wetune.ui.glass.LiquidGlassContainer
-import com.wetune.ui.glass.LocalLiquid
-import com.wetune.ui.glass.liquidGlass
 import dev.chrisbanes.haze.HazeState
 import kotlinx.coroutines.launch
 
@@ -85,27 +77,14 @@ import kotlinx.coroutines.launch
  * "lyrics" / "queue" open a tray of option pills above the bar; anything else is a chevron that opens the player.
  * [haze] null (inside the player, nothing to blur behind) draws a dark translucent wash instead of glass.
  * Swipe the bar sideways to skip.
- * Liquid: the capsule and the tray pills are one sheet of glass, so the pills well up out of the action button and
- * melt back into the bar; the cover disc and the action button are drops of their own.
  */
 @Composable
-fun NowBar(t: Track, mode: String, onOpen: () -> Unit, modifier: Modifier = Modifier, haze: HazeState? = null, liquid: LiquidBackdrop? = null, onTray: (Boolean) -> Unit = {}) {
+fun NowBar(t: Track, mode: String, onOpen: () -> Unit, modifier: Modifier = Modifier, haze: HazeState? = null, onTray: (Boolean) -> Unit = {}) {
     val style = glassStyle()
     val fg = if (haze == null) Color.White else WT.c.text
-    val lq = liquid?.takeIf { Settings.glassStyle == "liquid" }
-    // every surface here is a capsule, so liquid glass ignores the shape
-    if (lq != null) CompositionLocalProvider(LocalLiquid provides lq) {
-        LiquidGlassContainer(lq, modifier.fillMaxWidth(), spacing = 12.dp, dark = fg.luminance() > 0.5f) {
-            NowBarBody(t, mode, onOpen, Modifier, fg, onTray) { glassShape() }
-        }
-    } else NowBarBody(t, mode, onOpen, modifier, fg, onTray) { shape ->
+    val surface: @Composable Modifier.(Shape) -> Modifier = { shape ->
         if (haze != null) glass(haze, style, shape) else clip(shape).background(Color(0xFF1E1E22).copy(alpha = 0.8f))
     }
-}
-
-@Composable
-private fun NowBarBody(t: Track, mode: String, onOpen: () -> Unit, modifier: Modifier, fg: Color, onTray: (Boolean) -> Unit, surface: @Composable Modifier.(Shape) -> Modifier) {
-    val liquid = LocalLiquid.current != null
     val options = mode == "lyrics" || mode == "queue"
     var tray by remember(mode) { mutableStateOf(false) } // closes whenever the pane changes
     androidx.compose.runtime.LaunchedEffect(tray && options) { onTray(tray && options) } // the pane keeps its content clear of the tray
@@ -115,14 +94,10 @@ private fun NowBarBody(t: Track, mode: String, onOpen: () -> Unit, modifier: Mod
 
     Column(modifier.fillMaxWidth()) {
         // the tray rises in above the bar; the bar itself never moves
-        // liquid: the pills well up out of the action button (bottom right) with a wobble, merging with the bar on the way
-        val drop = TransformOrigin(1f, 1f)
         AnimatedVisibility(
             tray && options,
-            enter = if (liquid) fadeIn(tween(200)) + scaleIn(spring(dampingRatio = 0.55f, stiffness = 420f), 0.25f, drop) + slideInVertically(spring(dampingRatio = 0.6f, stiffness = 420f)) { it }
-            else fadeIn(tween(200)) + slideInVertically(spring(dampingRatio = 0.86f)) { it / 3 },
-            exit = if (liquid) fadeOut(tween(200)) + scaleOut(tween(240), 0.25f, drop) + slideOutVertically(tween(240)) { it }
-            else fadeOut(tween(160)) + slideOutVertically(tween(160)) { it / 3 },
+            enter = fadeIn(tween(200)) + slideInVertically(spring(dampingRatio = 0.86f)) { it / 3 },
+            exit = fadeOut(tween(160)) + slideOutVertically(tween(160)) { it / 3 },
         ) {
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 8.dp).horizontalScroll(rememberScrollState()),
@@ -181,11 +156,8 @@ private fun CoverRing(t: Track, fg: Color) {
     val playing = Playback.playing
     val track = fg.copy(alpha = 0.16f)
     val view = androidx.compose.ui.platform.LocalView.current
-    val lq = LocalLiquid.current
     Box(
         Modifier.shared("play").size(64.dp)
-            // liquid: a ring of glass around the disc (the cover covers its middle)
-            .then(if (lq != null) Modifier.liquidGlass(lq, dark = fg.luminance() > 0.5f) else Modifier)
             .semantics {
                 contentDescription = "${if (playing) "Pause" else "Play"}, ${t.title}, ${formatTime(pos)} of ${formatTime(duration)}"
                 progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
@@ -218,11 +190,7 @@ private fun ActionBtn(icon: ImageVector, label: String, open: Boolean?, fg: Colo
             .pressable(scale = 0.9f, onClick = onClick),
         Alignment.Center,
     ) {
-        // liquid: a drop of glass, brighter (tinted with the text color) while its tray is open
-        val lq = LocalLiquid.current
-        val face = if (lq != null) Modifier.liquidGlass(lq, tint = if (on) fg.copy(alpha = 0.85f) else null, dark = fg.luminance() > 0.5f)
-        else Modifier.clip(CircleShape).background(bg)
-        Box(Modifier.size(44.dp).then(face), Alignment.Center) {
+        Box(Modifier.size(44.dp).clip(CircleShape).background(bg), Alignment.Center) {
             Icon(icon, null, size = 20.dp, tint = if (on) onFill(fg) else fg.copy(alpha = 0.75f))
         }
     }
@@ -247,14 +215,8 @@ private fun Pill(icon: ImageVector?, label: String, on: Boolean?, fg: Color, fro
 
 @Composable
 private fun PillBody(icon: ImageVector?, lit: Boolean, fg: Color, frost: Modifier, content: @Composable RowScope.() -> Unit) {
-    // liquid: always glass; on = a bright inset fill of the text color so the rim still shows around it
-    val face = when {
-        LocalLiquid.current != null -> if (lit) frost.padding(2.dp).clip(CircleShape).background(fg.copy(alpha = 0.85f)).padding(horizontal = 10.dp) else frost.padding(horizontal = 12.dp)
-        lit -> Modifier.clip(CircleShape).background(fg).padding(horizontal = 12.dp)
-        else -> frost.padding(horizontal = 12.dp)
-    }
     Row(
-        Modifier.height(36.dp).then(face),
+        Modifier.height(36.dp).then(if (lit) Modifier.clip(CircleShape).background(fg) else frost).padding(horizontal = 12.dp),
         Arrangement.spacedBy(6.dp), Alignment.CenterVertically,
     ) {
         if (icon != null) Icon(icon, null, size = 16.dp, tint = if (lit) onFill(fg) else fg)

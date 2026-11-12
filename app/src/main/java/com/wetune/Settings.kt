@@ -16,8 +16,6 @@ object Settings {
     var subsonicPass by Str("subsonic_pass", "")
     var theme by Str("theme", "system") // system | light | dark | black
     var matchAccent by Bool("match_accent", true)
-    var glassStyle by Str("glass_style", "frosted") // the tab bar and mini player: frosted | liquid (lensing glass, Android 13+)
-    var glassSolid by Bool("glass_solid", false) // reduce transparency: liquid glass becomes a near-solid surface
     var lyricsRoman by Bool("lyrics_roman", false) // show a Latin-letter reading under each lyric line
     var romanInline by Bool("roman_inline", false) // the one-line lyric above the seek bar in Latin letters
     var lyricsWords by Bool("lyrics_words", true) // prefer word-by-word lyrics and light them up letter by letter

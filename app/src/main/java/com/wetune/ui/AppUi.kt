@@ -77,10 +77,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import dev.chrisbanes.haze.HazeState
-import com.wetune.Settings
-import com.wetune.ui.glass.LiquidBackdrop
-import com.wetune.ui.glass.LiquidGlassContainer
-import com.wetune.ui.glass.liquidBackdrop
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
@@ -99,7 +95,6 @@ fun AppUi() {
     val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     val haze = remember { HazeState() }
-    val liquid = com.wetune.ui.glass.rememberLiquidBackdrop()
     val style = glassStyle()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val art = Playback.current?.art
@@ -110,7 +105,7 @@ fun AppUi() {
     BackHandler(playerOpen || stack.size > 1) { if (playerOpen) playerOpen = false else back() }
 
     Box(Modifier.fillMaxSize().background(WT.c.bg)) {
-        Box(Modifier.fillMaxSize().hazeSource(haze).liquidBackdrop(liquid)) {
+        Box(Modifier.fillMaxSize().hazeSource(haze)) {
             // The playing song's colors glow softly behind the top of the main tabs.
             if (stack.size == 1 && art != null) coil3.compose.AsyncImage(
                 art, null,
@@ -168,8 +163,8 @@ fun AppUi() {
                 Playback.current != null,
                 enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(tween(200)),
                 exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(160)),
-            ) { Playback.current?.let { NowBar(it, "open", onOpen = { playerOpen = true }, haze = haze, liquid = liquid) } }
-            NavBar(haze, style, liquid, stack.first()) { tab ->
+            ) { Playback.current?.let { NowBar(it, "open", onOpen = { playerOpen = true }, haze = haze) } }
+            NavBar(haze, style, stack.first()) { tab ->
                 stack.clear()
                 stack.add(tab)
             }
@@ -195,21 +190,14 @@ fun AppUi() {
 
 /** N1: a glass bar only as wide as its tabs; the active tab is a solid pill with its label. Search glows beside it. */
 @Composable
-private fun NavBar(haze: HazeState, style: HazeStyle, liquid: LiquidBackdrop, root: Screen, onTab: (Screen) -> Unit) {
-    // Liquid: the bar and Search are one sheet of glass, so pressing one swells it toward the other and they melt together.
-    if (Settings.glassStyle == "liquid") LiquidGlassContainer(liquid, spacing = 14.dp) { NavRow(Modifier.glassShape(), Modifier.glassShape(), root, onTab) }
-    else NavRow(Modifier.glass(haze, style, CircleShape), Modifier.glass(haze, style, CircleShape), root, onTab)
-}
-
-@Composable
-private fun NavRow(barGlass: Modifier, searchGlass: Modifier, root: Screen, onTab: (Screen) -> Unit) {
+private fun NavBar(haze: HazeState, style: HazeStyle, root: Screen, onTab: (Screen) -> Unit) {
     val c = WT.c
     val pillBg = if (c.dark) Color.White else Color(0xFF1C1C1E)
     val pillFg = if (c.dark) Color(0xFF111111) else Color.White
     val idle = c.text.copy(alpha = 0.72f)
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(
-            Modifier.height(66.dp).then(barGlass).padding(horizontal = 6.dp).animateContentSize(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)),
+            Modifier.height(66.dp).glass(haze, style, CircleShape).padding(horizontal = 6.dp).animateContentSize(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             tabs.forEach { tab ->
@@ -230,7 +218,7 @@ private fun NavRow(barGlass: Modifier, searchGlass: Modifier, root: Screen, onTa
         }
         val searching = root == Screen.Search
         Box(
-            Modifier.size(66.dp).then(searchGlass).then(if (searching) Modifier.clip(CircleShape).background(pillBg) else Modifier)
+            Modifier.size(66.dp).glass(haze, style, CircleShape).then(if (searching) Modifier.background(pillBg) else Modifier)
                 .semantics { this.selected = searching; contentDescription = "Search" }
                 .pressable(scale = 0.92f, role = Role.Tab) { onTab(Screen.Search) },
             Alignment.Center,

@@ -84,7 +84,6 @@ import com.wetune.Lyrics
 import com.wetune.Playback
 import com.wetune.rememberPosition
 import com.wetune.sources.Track
-import com.wetune.ui.glass.liquidGlass
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -549,11 +548,8 @@ fun QueueView(modifier: Modifier = Modifier.fillMaxSize(), tools: Boolean = true
                                     .pressable(scale = 0.94f, role = androidx.compose.ui.semantics.Role.RadioButton) { Settings.autoplayMix = k },
                                 Alignment.Center,
                             ) {
-                                // liquid: glass chips, the chosen one tinted bright
-                                val lq = com.wetune.ui.glass.LocalLiquid.current
                                 Box(
-                                    Modifier.height(34.dp)
-                                        .then(if (lq != null) Modifier.liquidGlass(lq, tint = if (on) c.copy(alpha = 0.85f) else null, dark = c.luminance() > 0.5f) else Modifier.clip(CircleShape).background(bg))
+                                    Modifier.height(34.dp).clip(CircleShape).background(bg)
                                         .padding(horizontal = 14.dp),
                                     Alignment.Center,
                                 ) {
@@ -592,17 +588,9 @@ private fun SleepSheet(onDismiss: () -> Unit) {
 /** A small round tool button for the lyrics panel. */
 @Composable
 private fun ToolPill(icon: ImageVector, label: String, active: Boolean = false, text: String? = null, onClick: () -> Unit) {
-    val c0 = LocalContentColor.current
-    // liquid: glass, tinted bright with the content color while active (and the glyph flips dark on it)
-    val lq = com.wetune.ui.glass.LocalLiquid.current
-    val light = c0.luminance() > 0.5f
-    val c = if (lq != null && active) (if (light) Color(0xFF141414) else Color.White) else c0
+    val c = LocalContentColor.current
     Row(
-        Modifier.height(36.dp)
-            .then(
-                if (lq != null) Modifier.liquidGlass(lq, tint = if (active) c0.copy(alpha = 0.85f) else null, dark = light)
-                else Modifier.clip(CircleShape).background(Color.Black.copy(alpha = 0.16f)).background(c0.copy(alpha = if (active) 0.26f else 0.12f)),
-            )
+        Modifier.height(36.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.16f)).background(c.copy(alpha = if (active) 0.26f else 0.12f))
             .semantics { contentDescription = label; selected = active }.pressable(scale = 0.92f, onClick = onClick)
             .padding(horizontal = if (text == null) 9.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
