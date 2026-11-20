@@ -167,3 +167,12 @@ fun pageLinks(byline: List<JSONObject>): List<Card> = byline.mapNotNull { r ->
         else -> null
     }
 }.sortedBy { it.subtitle != "Artist" }
+
+/** The mood / genre chips at the top of a Home page, each with the browse params of its feed. */
+fun homeChips(root: Any?): List<YouTube.Chip> = findAll(root, setOf("chipCloudChipRenderer")).mapNotNull { (_, c) ->
+    val p = c.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("params")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+    c.optJSONObject("text").text().takeIf { it.isNotBlank() }?.let { YouTube.Chip(it, p) }
+}.distinctBy { it.title }.filterNot { it.title.equals("Podcasts", ignoreCase = true) } // a music app: no podcast feed
+
+/** The same artwork at full size (1200 px) for big displays like Now Playing; lists keep the lighter default. */
+fun hiRes(url: String?): String? = url?.replace(Regex("=w[0-9]+-h[0-9]+"), "=w1200-h1200")

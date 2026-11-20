@@ -34,11 +34,18 @@ object YouTube : Source {
     fun searchKind(query: String, kind: String): Items =
         items(InnerTube.post("search", JSONObject().put("query", query).put("params", SearchFilters.getValue(kind))))
 
-    /** The Home feed, including the next few pages (YouTube sends trending, new releases etc. further down). */
-    /** The first page of Home and the token for the next (null when there's no more). */
-    fun home(): Pair<List<Section>, String?> {
-        val first = InnerTube.post("browse", JSONObject().put("browseId", "FEmusic_home"))
-        return sections(first) to continuation(findFirst(first, "sectionListRenderer"))
+    /** A mood / genre chip at the top of Home ("Energize", "Relax"…): its label and the browse params for its feed. */
+    data class Chip(val title: String, val params: String)
+
+    /** A page of Home: its sections, the token for the next page (null when none), and the chips offered on it. */
+    data class Home(val sections: List<Section>, val token: String?, val chips: List<Chip>)
+
+    /** The first page of Home, or of a chip's feed when [params] is given. */
+    fun home(params: String? = null): Home {
+        val body = JSONObject().put("browseId", "FEmusic_home")
+        if (params != null) body.put("params", params)
+        val first = InnerTube.post("browse", body)
+        return Home(sections(first), continuation(findFirst(first, "sectionListRenderer")), homeChips(first))
     }
 
     /** The next page of Home after [token]. */
@@ -47,7 +54,8 @@ object YouTube : Source {
         return sections(more) to continuation(findFirst(more, "sectionListContinuation"))
     }
 
-    data class Page(val tracks: List<Track>, val sections: List<Section>)
+    /** [saveId]: the playlist id YouTube's "save to library" uses for this album or playlist (null when it can't be saved). */
+    data class Page(val tracks: List<Track>, val sections: List<Section>, val saveId: String? = null, val art: String? = null)
 
     /** Album, playlist or artist page; follows playlist continuations. */
     fun page(card: Card, maxPages: Int = 50): Page {
@@ -71,6 +79,10 @@ object YouTube : Source {
                 )
             },
             sections(root).filter { it.cards.isNotEmpty() },
+            ((findFirst(findFirst(root, "likeEndpoint"), "target") as? JSONObject)?.optString("playlistId")?.ifEmpty { null }),
+            // the page's own artwork, for pages opened from a link that carried none (Go to album / artist)
+            listOf("musicResponsiveHeaderRenderer", "musicImmersiveHeaderRenderer", "musicVisualHeaderRenderer", "musicDetailHeaderRenderer")
+                .firstNotNullOfOrNull { findFirst(root, it) }?.let(::thumbnail),
         )
     }
 
@@ -91,6 +103,13 @@ object YouTube : Source {
         val panel = findFirst(r, "playlistPanelVideoRenderer") as? JSONObject ?: return emptyList()
         return pageLinks(panel.optJSONObject("longBylineText").runs())
     }
+
+    /**
+     * What kind of YouTube Music item [videoId] is: MUSIC_VIDEO_TYPE_ATV (a song: audio with its cover), _OMV (an
+     * official music video), _UGC (a user upload)… Null when YouTube doesn't say.
+     */
+    fun videoType(videoId: String): String? =
+        findFirst(InnerTube.post("next", JSONObject().put("videoId", videoId).put("isAudioOnly", true)), "musicVideoType") as? String
 
     data class PlayerInfo(val loudnessDb: Double?, val trackingUrl: String?)
 
