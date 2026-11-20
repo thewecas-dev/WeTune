@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: settings, lyric timings, add-ons and the library survive an uninstall (cloud backup) and a phone move.
+     Downloads, the audio cache and stream URLs are left out: large or stale, and fetched again anyway. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="sharedpref" path="settings.xml" />
+        <include domain="sharedpref" path="lyrics_offset.xml" />
+        <include domain="sharedpref" path="addons.xml" />
+        <include domain="sharedpref" path="pins.xml" />
+        <include domain="file" path="library.json" />
+        <include domain="file" path="sync.json" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="sharedpref" path="settings.xml" />
+        <include domain="sharedpref" path="lyrics_offset.xml" />
+        <include domain="sharedpref" path="addons.xml" />
+        <include domain="sharedpref" path="pins.xml" />
+        <include domain="file" path="library.json" />
+        <include domain="file" path="sync.json" />
+    </device-transfer>
+</data-extraction-rules>

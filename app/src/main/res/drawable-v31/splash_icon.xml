@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launch screen (Android 12+): the mark assembles in ~0.8 s. The band draws across, the two heads pop in one after
+     the other, then the ear cups settle on. Parts start hidden (a delayed part must not flash first); Android 8-11
+     use drawable/splash_icon.xml, the still mark. Same drawing as ic_launcher_foreground. -->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt">
+    <aapt:attr name="android:drawable">
+        <vector
+            android:width="108dp"
+            android:height="108dp"
+            android:viewportWidth="108"
+            android:viewportHeight="108">
+            <group android:pivotX="54" android:pivotY="54" android:scaleX="0.88" android:scaleY="0.88">
+                <path
+                    android:name="band"
+                    android:pathData="M28,58 C28,26 80,26 80,58"
+                    android:strokeColor="#FF132260"
+                    android:strokeWidth="7"
+                    android:strokeLineCap="round"
+                    android:trimPathEnd="0" />
+                <group android:name="headL" android:pivotX="42" android:pivotY="62" android:scaleX="0" android:scaleY="0">
+                    <path android:fillColor="#FFFFFFFF" android:pathData="M29.5,62a12.5,12.5 0,1 0,25 0a12.5,12.5 0,1 0,-25 0z" />
+                </group>
+                <group android:name="headR" android:pivotX="66" android:pivotY="62" android:scaleX="0" android:scaleY="0">
+                    <path android:fillColor="#FFFFFFFF" android:pathData="M53.5,62a12.5,12.5 0,1 0,25 0a12.5,12.5 0,1 0,-25 0z" />
+                </group>
+                <group android:name="cupL" android:pivotX="28" android:pivotY="62.5" android:scaleX="0" android:scaleY="0">
+                    <path android:fillColor="#FF132260" android:pathData="M28,54a4.5,4.5 0,0 1,4.5 4.5v8a4.5,4.5 0,0 1,-9 0v-8a4.5,4.5 0,0 1,4.5 -4.5z" />
+                </group>
+                <group android:name="cupR" android:pivotX="80" android:pivotY="62.5" android:scaleX="0" android:scaleY="0">
+                    <path android:fillColor="#FF132260" android:pathData="M80,54a4.5,4.5 0,0 1,4.5 4.5v8a4.5,4.5 0,0 1,-9 0v-8a4.5,4.5 0,0 1,4.5 -4.5z" />
+                </group>
+            </group>
+        </vector>
+    </aapt:attr>
+    <target android:name="band">
+        <aapt:attr name="android:animation">
+            <objectAnimator android:propertyName="trimPathEnd" android:valueFrom="0" android:valueTo="1"
+                android:duration="380" android:interpolator="@android:interpolator/fast_out_slow_in" />
+        </aapt:attr>
+    </target>
+    <target android:name="headL" android:animation="@anim/splash_pop_1" />
+    <target android:name="headR" android:animation="@anim/splash_pop_2" />
+    <target android:name="cupL" android:animation="@anim/splash_pop_3" />
+    <target android:name="cupR" android:animation="@anim/splash_pop_3" />
+</animated-vector>

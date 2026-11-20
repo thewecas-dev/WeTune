@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launch screen icon before Android 12: the still mark (the animated one is drawable-v31/splash_icon.xml). -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android" android:drawable="@drawable/ic_launcher_foreground" />

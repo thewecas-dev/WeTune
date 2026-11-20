@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older: what Auto Backup keeps so a reinstall comes back with the same settings. -->
+<full-backup-content>
+    <include domain="sharedpref" path="settings.xml" />
+    <include domain="sharedpref" path="lyrics_offset.xml" />
+    <include domain="sharedpref" path="addons.xml" />
+    <include domain="sharedpref" path="pins.xml" />
+    <include domain="file" path="library.json" />
+    <include domain="file" path="sync.json" />
+</full-backup-content>
