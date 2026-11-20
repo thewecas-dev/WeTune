@@ -77,6 +77,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import dev.chrisbanes.haze.HazeState
+import com.wetune.Settings
+import dev.chrisbanes.haze.HazeProgressive
+import androidx.compose.runtime.CompositionLocalProvider
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
@@ -92,13 +95,13 @@ private val tabs = listOf(
 
 @Composable
 fun AppUi() {
-    val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
+    val stack = remember { mutableStateListOf<Screen>(if (Settings.startTab == "library") Screen.Library else Screen.Home) }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     val haze = remember { HazeState() }
     val style = glassStyle()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val art = Playback.current?.art
-    androidx.compose.runtime.LaunchedEffect(art) { NowColors.palette = art?.let { artPalette(ctx, it) } }
+    androidx.compose.runtime.LaunchedEffect(art) { NowColors.art = loadArt(ctx, art) }
     val open: (Screen) -> Unit = { stack.add(it) }
     val back: () -> Unit = { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
 
@@ -106,15 +109,18 @@ fun AppUi() {
 
     Box(Modifier.fillMaxSize().background(WT.c.bg)) {
         Box(Modifier.fillMaxSize().hazeSource(haze)) {
-            // The playing song's colors glow softly behind the top of the main tabs.
-            if (stack.size == 1 && art != null) coil3.compose.AsyncImage(
+          Box(Modifier.fillMaxSize()) {
+            // The playing song's colors glow softly behind every page, with a faint wash of them down the whole screen,
+            // so the frosted glass over it has colour to soften.
+            if (art != null) coil3.compose.AsyncImage(
                 art, null,
-                Modifier.fillMaxWidth().height(420.dp).offset(y = (-120).dp).graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                Modifier.fillMaxWidth().fillMaxHeight().offset(y = (-120).dp).graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                     .blur(80.dp, BlurredEdgeTreatment.Unbounded)
-                    .drawWithContent { drawContent(); drawRect(Brush.verticalGradient(listOf(Color.Black, Color.Transparent)), blendMode = BlendMode.DstIn) },
+                    .drawWithContent { drawContent(); drawRect(Brush.verticalGradient(listOf(Color.Black, Color.Black.copy(alpha = 0.3f))), blendMode = BlendMode.DstIn) },
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 alpha = if (WT.c.dark) 0.5f else 0.35f,
             )
+          }
             // Pages slide in from the right going deeper and back out going back; tab switches crossfade.
             AnimatedContent(
                 stack.size to stack.last(),
@@ -150,9 +156,10 @@ fun AppUi() {
                 }
             }
         }
-        // A soft fade behind the status bar (no hard edge) so scrolled content doesn't clash with the clock and icons.
+        // Frost behind the status bar, fading out below it (no hard edge), so scrolled content doesn't clash with the clock and icons.
         val statusH = statusBarHeight()
-        Box(Modifier.fillMaxWidth().height(statusH + 28.dp).background(Brush.verticalGradient(listOf(WT.c.bg.copy(alpha = 0.7f), WT.c.bg.copy(alpha = 0.35f), Color.Transparent))))
+        val statusPx = with(androidx.compose.ui.platform.LocalDensity.current) { statusH.toPx() }
+        Box(Modifier.fillMaxWidth().height(statusH + 28.dp).hazeEffect(haze, style) { progressive = HazeProgressive.verticalGradient(startY = statusPx, startIntensity = 1f, endIntensity = 0f) })
         Column(
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -182,6 +189,10 @@ fun AppUi() {
                 stack.clear(); stack.add(Screen.Search)
             }, onOpen = { c -> playerOpen = false; stack.add(Screen.Yt(c)) })
         }
+        // Customize player: over everything (opened from Now Playing's ⋯ or Settings → Appearance)
+        AnimatedVisibility(NpEditor.open, enter = slideInVertically(tween(280)) { it / 3 } + fadeIn(tween(220)), exit = slideOutVertically(tween(220)) { it / 3 } + fadeOut(tween(180))) {
+            NpCustomize { NpEditor.open = false }
+        }
         // Sign-in is a WebView: kept out of the blurred glass layer (re-capturing it every frame made it flicker) and
         // above the nav bar and mini-player, which it doesn't need
         if (stack.last() == Screen.Login) LoginScreen(back)
@@ -191,13 +202,18 @@ fun AppUi() {
 /** N1: a glass bar only as wide as its tabs; the active tab is a solid pill with its label. Search glows beside it. */
 @Composable
 private fun NavBar(haze: HazeState, style: HazeStyle, root: Screen, onTab: (Screen) -> Unit) {
+    NavRow(Modifier.glass(haze, style, CircleShape), Modifier.glass(haze, style, CircleShape), root, onTab)
+}
+
+@Composable
+private fun NavRow(barGlass: Modifier, searchGlass: Modifier, root: Screen, onTab: (Screen) -> Unit) {
     val c = WT.c
     val pillBg = if (c.dark) Color.White else Color(0xFF1C1C1E)
     val pillFg = if (c.dark) Color(0xFF111111) else Color.White
     val idle = c.text.copy(alpha = 0.72f)
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(
-            Modifier.height(66.dp).glass(haze, style, CircleShape).padding(horizontal = 6.dp).animateContentSize(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)),
+            Modifier.height(66.dp).then(barGlass).padding(horizontal = 6.dp).animateContentSize(spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             tabs.forEach { tab ->
@@ -218,7 +234,7 @@ private fun NavBar(haze: HazeState, style: HazeStyle, root: Screen, onTab: (Scre
         }
         val searching = root == Screen.Search
         Box(
-            Modifier.size(66.dp).glass(haze, style, CircleShape).then(if (searching) Modifier.background(pillBg) else Modifier)
+            Modifier.size(66.dp).then(searchGlass).then(if (searching) Modifier.clip(CircleShape).background(pillBg) else Modifier)
                 .semantics { this.selected = searching; contentDescription = "Search" }
                 .pressable(scale = 0.92f, role = Role.Tab) { onTab(Screen.Search) },
             Alignment.Center,

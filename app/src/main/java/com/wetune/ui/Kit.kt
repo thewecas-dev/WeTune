@@ -88,6 +88,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.selected
@@ -213,7 +214,8 @@ fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, kind: 
         BtnKind.Danger -> c.danger.copy(alpha = 0.14f) to c.danger
     }
     Row(
-        modifier.heightIn(min = 46.dp).clip(PillShape).background(bg)
+        modifier.heightIn(min = 46.dp)
+            .clip(PillShape).background(bg)
             .pressable(enabled, scale = 0.96f, onClick = onClick).graphicsLayer { alpha = if (enabled) 1f else 0.45f }
             .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.Center,
@@ -398,7 +400,7 @@ fun Divider(modifier: Modifier = Modifier) {
 @Composable
 fun Menu(open: Boolean, onDismiss: () -> Unit, title: String? = null, header: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     if (!open) return
-    val c = WT.c
+    val c = LocalOverlayPalette.current ?: WT.c
     val density = androidx.compose.ui.platform.LocalDensity.current
     val shown = remember { MutableTransitionState(false).apply { targetState = true } }
     val dismiss = { shown.targetState = false } // slide out first; the sheet is removed once that finishes
@@ -406,6 +408,7 @@ fun Menu(open: Boolean, onDismiss: () -> Unit, title: String? = null, header: (@
     val drag = remember { androidx.compose.animation.core.Animatable(0f) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     androidx.compose.ui.window.Dialog(dismiss, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        FrostBehind()
         Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { dismiss() } }, Alignment.BottomCenter) {
             AnimatedVisibility(
                 shown,
@@ -413,7 +416,7 @@ fun Menu(open: Boolean, onDismiss: () -> Unit, title: String? = null, header: (@
                 exit = androidx.compose.animation.slideOutVertically(tween(220)) { it } + androidx.compose.animation.fadeOut(tween(180)),
             ) {
                 val shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-                CompositionLocalProvider(LocalContentColor provides c.text) {
+                CompositionLocalProvider(LocalPalette provides c, LocalContentColor provides c.text) {
                     Column(
                         Modifier.widthIn(max = 560.dp).fillMaxWidth()
                             .offset { IntOffset(0, drag.value.roundToInt()) }
@@ -474,9 +477,10 @@ fun MenuItem(text: String, onClick: () -> Unit, icon: ImageVector? = null, dange
 /** Modal card. [actions] sit bottom-right. */
 @Composable
 fun Sheet(title: String, onDismiss: () -> Unit, actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
-    val c = WT.c
+    val c = LocalOverlayPalette.current ?: WT.c
     Dialog(onDismissRequest = onDismiss) {
-        CompositionLocalProvider(LocalContentColor provides c.text) {
+        FrostBehind()
+        CompositionLocalProvider(LocalPalette provides c, LocalContentColor provides c.text) {
             Column(Modifier.fillMaxWidth().frost(RoundedCornerShape(30.dp)).padding(22.dp)) {
                 Txt(title, style = Type.title)
                 Spacer(Modifier.height(12.dp))
@@ -492,8 +496,8 @@ fun Sheet(title: String, onDismiss: () -> Unit, actions: @Composable RowScope.()
 fun Group(title: String? = null, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val c = WT.c
     Column(modifier.fillMaxWidth()) {
-        if (title != null) Txt(title.uppercase(), Modifier.padding(start = 16.dp, bottom = 8.dp, top = 20.dp), style = Type.overline, color = c.muted)
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.surface), content = content)
+        if (title != null) Txt(title.uppercase(), Modifier.padding(start = 16.dp, bottom = 8.dp, top = 20.dp).semantics { heading() }, style = Type.overline, color = c.muted)
+        Column(Modifier.fillMaxWidth().frostCard(RoundedCornerShape(20.dp)), content = content)
     }
 }
 

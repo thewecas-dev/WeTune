@@ -93,11 +93,15 @@ class PlaybackService : MediaSessionService() {
             .build()
         restoreQueue()
         watchNetwork()
+        // settings the player takes while it runs
+        scope.launch { androidx.compose.runtime.snapshotFlow { Settings.skipSilence }.collect { player.skipSilenceEnabled = it } }
+        scope.launch { androidx.compose.runtime.snapshotFlow { Settings.pauseOnUnplug }.collect { player.setHandleAudioBecomingNoisy(it) } }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        if (Settings.stopOnSwipe) player.pause()
         if (!player.playWhenReady || player.mediaItemCount == 0) stopSelf()
     }
 
@@ -236,7 +240,7 @@ class PlaybackService : MediaSessionService() {
     /** Sends the play to YouTube once per song, after it actually starts playing. */
     private fun maybeRegister() {
         val (id, url) = tracking ?: return
-        if (!player.isPlaying || player.currentMediaItem?.mediaId != id || registered == id || !InnerTube.signedIn) return
+        if (!player.isPlaying || player.currentMediaItem?.mediaId != id || registered == id || !InnerTube.signedIn || !Settings.sendHistory) return
         registered = id
         scope.launch(Dispatchers.IO) { runCatching { Sync.registerPlayback(url) } }
     }

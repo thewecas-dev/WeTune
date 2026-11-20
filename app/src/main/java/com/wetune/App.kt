@@ -36,7 +36,7 @@ class App : Application() {
 
         @OptIn(UnstableApi::class)
         val cache: SimpleCache by lazy {
-            SimpleCache(File(ctx.cacheDir, "media"), LeastRecentlyUsedCacheEvictor(512L shl 20), StandaloneDatabaseProvider(ctx))
+            SimpleCache(File(ctx.cacheDir, "media"), LeastRecentlyUsedCacheEvictor(Settings.cacheMb.coerceAtLeast(128).toLong() shl 20), StandaloneDatabaseProvider(ctx))
         }
     }
 }

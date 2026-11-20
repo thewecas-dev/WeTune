@@ -67,6 +67,15 @@ object Lyrics {
         prefs.edit().apply { if (ms == 0L) remove(id) else putLong(id, ms) }.apply()
     }
 
+    /** How many songs have their own lyric timing. */
+    fun offsetCount(): Int = prefs.all.size
+
+    /** Every song back to the lyrics' own timing. */
+    fun resetOffsets() {
+        offsets.clear()
+        prefs.edit().clear().apply()
+    }
+
     // ---- fetching ----
 
     /** Blocking. All versions for [t], best first (exact match, then synced, then plain); cached. */

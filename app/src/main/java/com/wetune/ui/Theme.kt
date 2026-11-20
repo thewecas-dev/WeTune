@@ -52,7 +52,7 @@ object Tokens {
     val Black = Dark.copy(bg = Color.Black, surface = Color(0xFF0A0A0A), surfaceHigh = Color(0xFF17171C))
     val Light = Palette(
         bg = Color(0xFFF5F5F7), surface = Color.White, surfaceHigh = Color(0xFFECECF0),
-        text = Color(0xFF1C1C1E), muted = Color(0x993C3C43), accent = Color(0xFFB4572F), onAccent = Color.White,
+        text = Color(0xFF1C1C1E), muted = Color(0xBF3C3C43) /* 4.9:1 on bg, 5.2:1 on white */, accent = Color(0xFFB4572F), onAccent = Color.White,
         danger = Color(0xFFD93A3A), outline = Color(0x1F3C3C43), dark = false,
     )
 
@@ -99,6 +99,19 @@ object WT {
 /** The accent for a cover: only its [hue] changes; saturation and lightness stay fixed so every song's accent feels equally strong. */
 fun hueAccent(hue: Float, dark: Boolean): Color = Color.hsl(hue, if (dark) 0.6f else 0.55f, if (dark) 0.7f else 0.45f)
 
+/** The accent for [base]: the playing cover's hue, or the user's chosen hue, or the palette's own. */
+private fun accentFor(base: Palette): Color =
+    NowColors.palette?.hue?.takeIf { Settings.matchAccent }?.let { hueAccent(it, base.dark) }
+        ?: Settings.accentHue.takeIf { it >= 0 }?.let { hueAccent(it.toFloat(), base.dark) } ?: base.accent
+
+private fun Palette.withAccent(a: Color) = copy(accent = a, onAccent = if (a.luminance() > 0.5f) Color(0xFF15100C) else Color.White)
+
+/** This palette, or the dark one (with the accent made for it) when the app is light. */
+fun Palette.asDark(): Palette = if (dark) this else Tokens.Dark.withAccent(accentFor(Tokens.Dark))
+
+/** Menus and sheets use this palette when set: Now Playing (always dark) sets the dark one, so they match the player. */
+val LocalOverlayPalette = staticCompositionLocalOf<Palette?> { null }
+
 @Composable
 fun WeTuneTheme(content: @Composable () -> Unit) {
     val base = when (Settings.theme) {
@@ -107,11 +120,8 @@ fun WeTuneTheme(content: @Composable () -> Unit) {
         "black" -> Tokens.Black
         else -> if (isSystemInDarkTheme()) Tokens.Dark else Tokens.Light
     }
-    val art = NowColors.palette
-    val accent by animateColorAsState(
-        art?.hue?.takeIf { Settings.matchAccent }?.let { hueAccent(it, base.dark) } ?: base.accent, tween(600), label = "accent",
-    )
-    val palette = base.copy(accent = accent, onAccent = if (accent.luminance() > 0.5f) Color(0xFF15100C) else Color.White)
+    val accent by animateColorAsState(accentFor(base), tween(600), label = "accent")
+    val palette = base.withAccent(accent)
     val view = LocalView.current
     if (!view.isInEditMode) SideEffect {
         val window = (view.context as Activity).window
@@ -120,7 +130,10 @@ fun WeTuneTheme(content: @Composable () -> Unit) {
             isAppearanceLightNavigationBars = !palette.dark
         }
     }
+    val density = androidx.compose.ui.platform.LocalDensity.current
     CompositionLocalProvider(
+        // the app's own text size on top of the system's
+        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, density.fontScale * Settings.textScale / 100f),
         LocalPalette provides palette,
         LocalContentColor provides palette.text,
         LocalTextStyle provides Type.body,

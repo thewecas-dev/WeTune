@@ -47,6 +47,12 @@ import coil3.compose.AsyncImage
 import com.wetune.Playback
 import com.wetune.sources.Track
 import com.wetune.youtube.Section
+import dev.chrisbanes.haze.HazeProgressive
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.CompositionLocalProvider
 
 enum class PageKind(val label: String) { Album("Album"), Playlist("Playlist"), Artist("Artist") }
 
@@ -86,7 +92,11 @@ fun CollectionPage(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(c.bg)) {
+    // the whole page is recorded so the title bar can frost it
+    val pageHaze = remember { HazeState() }
+    val barStyle = glassStyle()
+    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().hazeSource(pageHaze).background(c.bg)) {
         Box(Modifier.fillMaxWidth().height(720.dp).background(Brush.verticalGradient(listOf(wash, c.bg))))
         LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = BottomSpace)) {
             item(key = "poster") {
@@ -124,7 +134,8 @@ fun CollectionPage(
                     if (tracks.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         // play: a filled circle in the cover's accent, like Now Playing
                         Box(
-                            Modifier.size(58.dp).clip(CircleShape).background(accent).pressable(scale = 0.92f) { Playback.play(tracks, from = from) }
+                            Modifier.size(58.dp).clip(CircleShape).background(accent)
+                                .pressable(scale = 0.92f) { Playback.play(tracks, from = from) }
                                 .semantics { contentDescription = "Play $title" },
                             Alignment.Center,
                         ) { Icon(Ic.Play, null, size = 26.dp, tint = if (accent.luminance() > 0.45f) Color(0xFF111111) else Color.White) }
@@ -143,13 +154,23 @@ fun CollectionPage(
             }
             items(sections, key = { "s:" + it.title }) { s -> SectionView(s, openCard) }
         }
+    }
 
         // slim bar: back always; the title and a soft fill fade in once the poster has scrolled away
+        // frosted, fading out over its last stretch so the page scrolls under it with no hard edge
+        val barPx = with(density) { (statusTop + 52.dp).toPx() }
+        Box(
+            Modifier.fillMaxWidth().height(statusTop + 76.dp).hazeEffect(pageHaze, barStyle) {
+                alpha = barAlpha
+                progressive = HazeProgressive.verticalGradient(startY = barPx, startIntensity = 1f, endIntensity = 0f)
+            },
+        )
         Row(
-            Modifier.fillMaxWidth().background(c.bg.copy(alpha = 0.92f * barAlpha)).padding(top = statusTop).height(52.dp).padding(horizontal = 6.dp),
+            Modifier.fillMaxWidth().padding(top = statusTop).height(52.dp).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.28f * (1f - barAlpha))).pressable(scale = 0.9f, onClick = back).semantics { contentDescription = "Back" }, Alignment.Center) {
+            val face = Modifier.clip(CircleShape).background(Color.Black.copy(alpha = 0.28f * (1f - barAlpha)))
+            Box(Modifier.size(40.dp).then(face).pressable(scale = 0.9f, onClick = back).semantics { contentDescription = "Back" }, Alignment.Center) {
                 Icon(Ic.Back, null, size = 22.dp, tint = if (barAlpha > 0.5f) c.text else Color.White)
             }
             Txt(title, Modifier.weight(1f).padding(start = 8.dp).graphicsLayer { alpha = barAlpha }, style = Type.headline, maxLines = 1)

@@ -97,31 +97,23 @@ val SunsetPalette = ArtPalette(Color(0xFFE0613F), Color(0xFF123445))
 
 /** The current song's cover colors, shared by the player and the app-wide accent. */
 object NowColors {
-    var palette by mutableStateOf<ArtPalette?>(null)
-}
-
-internal suspend fun artPalette(ctx: Context, url: String?): ArtPalette? = withContext(Dispatchers.IO) {
-    if (url == null) return@withContext null
-    val result = ctx.imageLoader.execute(ImageRequest.Builder(ctx).data(url).allowHardware(false).size(160).build())
-    val bitmap = (result as? SuccessResult)?.image?.toBitmap() ?: return@withContext null
-    val p = Palette.from(bitmap).generate()
-    fun c(s: Palette.Swatch?) = s?.rgb?.let { Color(it) }
-    val band = c(p.vibrantSwatch) ?: c(p.dominantSwatch) ?: return@withContext null
-    val deep = c(p.darkVibrantSwatch) ?: lerp(band, Color.Black, 0.35f)
-    var sea = c(p.darkMutedSwatch) ?: lerp(deep, Color.Black, 0.45f)
-    if (sea.luminance() > 0.12f) sea = lerp(sea, Color.Black, 0.45f) // backdrops must stay dark enough for white text
-    // the hue of the colour covering most of the cover (weighted by how colourful it is), so the accent clearly belongs to it
-    val hue = p.swatches.filter { it.hsl[1] > 0.18f && it.hsl[2] in 0.12f..0.92f }.maxByOrNull { it.population * it.hsl[1] }?.hsl?.get(0)
-    ArtPalette(band, sea, hue)
+    /** The current song's decoded cover (one decode, see [loadArt]); [palette] is its colours. */
+    var art by mutableStateOf<ArtData?>(null)
+    val palette: ArtPalette? get() = art?.palette
 }
 
 // ---- Player state ----
 
+/**
+ * Everything the player's layers read. The position is a [State] read through [pos] / [fraction]: whoever reads it
+ * (a draw lambda, the time labels) is what updates, not the whole screen. [preview]: drawn in the Customize editor
+ * (no pager, no gestures); [testArt]: the editor's test cover in place of the song's.
+ */
+@androidx.compose.runtime.Stable
 class PlayerUi(
     val t: Track,
     val pal: ArtPalette,
-    val pos: Long,
-    val duration: Long,
+    private val position: androidx.compose.runtime.State<Long>,
     val pane: String,
     val setPane: (String) -> Unit,
     val close: () -> Unit,
@@ -130,9 +122,26 @@ class PlayerUi(
     val search: (String) -> Unit,
     /** Closes the player and opens an artist or album page. */
     val open: (com.wetune.sources.Card) -> Unit = {},
+    val art: ArtData? = null,
+    val preview: Boolean = false,
+    val testArt: android.graphics.Bitmap? = null,
 ) {
-    val fraction: Float get() = if (duration > 0) (pos.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val pos: Long get() = position.value
+    val duration: Long get() = Playback.duration().takeIf { it > 0 } ?: t.durationMs
+    val fraction: Float get() = duration.let { d -> if (d > 0) (pos.toFloat() / d).coerceIn(0f, 1f) else 0f }
+    val playing get() = Playback.playing
+    val buffering get() = Playback.buffering
+    val shuffle get() = Playback.shuffle
+    val repeat get() = Playback.repeat
+    val queue get() = Playback.queue
+    val index get() = Playback.index
+    val sleepOn get() = Playback.sleepEndsAt > 0
     fun seekTo(f: Float) = Playback.seek((f.coerceIn(0f, 1f) * duration).toLong())
+    fun seekToMs(ms: Long) = Playback.seek(ms.coerceIn(0, duration))
+    fun togglePlay() = Playback.toggle()
+    fun next() = Playback.next()
+    fun prev() = Playback.prev()
+    fun skipTo(i: Int) = Playback.skipTo(i)
     fun toggle(p: String) = setPane(if (pane == p) "art" else p)
 }
 
@@ -140,21 +149,24 @@ class PlayerUi(
 fun PlayerScreen(onClose: () -> Unit, onSearch: (String) -> Unit, onOpen: (com.wetune.sources.Card) -> Unit = {}) {
     // the status bar (clock, notifications) steps away while the player is open; a swipe from the top shows it for a moment
     val view = androidx.compose.ui.platform.LocalView.current
-    androidx.compose.runtime.DisposableEffect(Settings.npHideStatus) {
+    val hideStatus = NpStyleStore.style.layout.hideStatus
+    androidx.compose.runtime.DisposableEffect(hideStatus) {
         val window = generateSequence(view.context) { (it as? android.content.ContextWrapper)?.baseContext }.filterIsInstance<android.app.Activity>().firstOrNull()?.window
         val bars = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
-        if (Settings.npHideStatus && bars != null) {
+        if (hideStatus && bars != null) {
             bars.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             bars.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
         }
         onDispose { bars?.show(androidx.core.view.WindowInsetsCompat.Type.statusBars()) }
     }
     val t = Playback.current ?: return
-    val pal = NowColors.palette ?: SunsetPalette // computed once per song in AppUi
+    val art = NowColors.art // decoded once per song in AppUi
+    val pal = art?.palette ?: SunsetPalette
     var pane by rememberSaveable { mutableStateOf("art") }
     var sleep by remember { mutableStateOf(false) }
-    val pos by rememberPosition()
-    val ui = PlayerUi(t, pal, pos, Playback.duration().takeIf { it > 0 } ?: t.durationMs, pane, { pane = it }, onClose, { sleep = true }, onSearch, onOpen)
+    // the position is handed down as state, never read here: only what draws it updates 4 times a second
+    val pos = rememberPosition()
+    val ui = PlayerUi(t, pal, pos, pane, { pane = it }, onClose, { sleep = true }, onSearch, onOpen, art)
 
     // Swipe down: the player follows the finger and closes after a short pull (~110 dp) or any quick downward flick;
     // otherwise it springs back.
@@ -174,7 +186,7 @@ fun PlayerScreen(onClose: () -> Unit, onSearch: (String) -> Unit, onOpen: (com.w
     ) {
         CompositionLocalProvider(LocalContentColor provides Color.White) { GlassPlayer(ui) }
     }
-    if (sleep) SleepSheet { sleep = false }
+    if (sleep) CompositionLocalProvider(LocalOverlayPalette provides WT.c.asDark()) { SleepSheet { sleep = false } }
 }
 
 // ---- Shared parts ----
@@ -549,7 +561,8 @@ fun QueueView(modifier: Modifier = Modifier.fillMaxSize(), tools: Boolean = true
                                 Alignment.Center,
                             ) {
                                 Box(
-                                    Modifier.height(34.dp).clip(CircleShape).background(bg)
+                                    Modifier.height(34.dp)
+                                        .clip(CircleShape).background(bg)
                                         .padding(horizontal = 14.dp),
                                     Alignment.Center,
                                 ) {
@@ -588,9 +601,11 @@ private fun SleepSheet(onDismiss: () -> Unit) {
 /** A small round tool button for the lyrics panel. */
 @Composable
 private fun ToolPill(icon: ImageVector, label: String, active: Boolean = false, text: String? = null, onClick: () -> Unit) {
-    val c = LocalContentColor.current
+    val c0 = LocalContentColor.current
+    val c = c0
     Row(
-        Modifier.height(36.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.16f)).background(c.copy(alpha = if (active) 0.26f else 0.12f))
+        Modifier.height(36.dp)
+            .clip(CircleShape).background(Color.Black.copy(alpha = 0.16f)).background(c0.copy(alpha = if (active) 0.26f else 0.12f))
             .semantics { contentDescription = label; selected = active }.pressable(scale = 0.92f, onClick = onClick)
             .padding(horizontal = if (text == null) 9.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,

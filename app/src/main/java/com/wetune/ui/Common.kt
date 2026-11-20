@@ -456,7 +456,9 @@ fun PullRefresh(refreshing: Boolean, onRefresh: () -> Unit, modifier: Modifier =
                 val p = (pull / trigger).coerceIn(0f, 1f)
                 alpha = p; scaleX = 0.6f + 0.4f * p; scaleY = scaleX
                 translationY = pull * 0.45f - 8.dp.toPx()
-            }.size(40.dp).shadow(6.dp, CircleShape).clip(CircleShape).background(WT.c.surfaceHigh),
+            }.size(40.dp).then(
+                Modifier.shadow(6.dp, CircleShape).clip(CircleShape).background(WT.c.surfaceHigh),
+            ),
             Alignment.Center,
         ) { Spinner(size = 20.dp, color = WT.c.text) }
     }

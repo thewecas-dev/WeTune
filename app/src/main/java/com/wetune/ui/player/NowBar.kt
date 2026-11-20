@@ -82,12 +82,18 @@ import kotlinx.coroutines.launch
 fun NowBar(t: Track, mode: String, onOpen: () -> Unit, modifier: Modifier = Modifier, haze: HazeState? = null, onTray: (Boolean) -> Unit = {}) {
     val style = glassStyle()
     val fg = if (haze == null) Color.White else WT.c.text
-    val surface: @Composable Modifier.(Shape) -> Modifier = { shape ->
+    NowBarBody(t, mode, onOpen, modifier, fg, onTray) { shape ->
         if (haze != null) glass(haze, style, shape) else clip(shape).background(Color(0xFF1E1E22).copy(alpha = 0.8f))
     }
+}
+
+@Composable
+private fun NowBarBody(t: Track, mode: String, onOpen: () -> Unit, modifier: Modifier, fg: Color, onTray: (Boolean) -> Unit, surface: @Composable Modifier.(Shape) -> Modifier) {
     val options = mode == "lyrics" || mode == "queue"
-    var tray by remember(mode) { mutableStateOf(false) } // closes whenever the pane changes
-    androidx.compose.runtime.LaunchedEffect(tray && options) { onTray(tray && options) } // the pane keeps its content clear of the tray
+    // the tray is open on the Queue and Lyrics panes until the action button closes it; that choice holds for the session
+    val hasOptions = options && (mode == "queue" || rememberLyrics(t).orEmpty().isNotEmpty())
+    val tray = NowBarTray.open && hasOptions
+    androidx.compose.runtime.LaunchedEffect(tray) { onTray(tray) } // the pane keeps its content clear of the tray
     val swipe = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val limit = with(LocalDensity.current) { 80.dp.toPx() }
@@ -95,7 +101,7 @@ fun NowBar(t: Track, mode: String, onOpen: () -> Unit, modifier: Modifier = Modi
     Column(modifier.fillMaxWidth()) {
         // the tray rises in above the bar; the bar itself never moves
         AnimatedVisibility(
-            tray && options,
+            tray,
             enter = fadeIn(tween(200)) + slideInVertically(spring(dampingRatio = 0.86f)) { it / 3 },
             exit = fadeOut(tween(160)) + slideOutVertically(tween(160)) { it / 3 },
         ) {
@@ -136,11 +142,10 @@ fun NowBar(t: Track, mode: String, onOpen: () -> Unit, modifier: Modifier = Modi
                     verticalArrangement = Arrangement.Center,
                 ) {
                     Txt(t.title, Modifier.shared("title", text = true).clearAndSetSemantics {}, style = Type.bodyStrong.copy(fontSize = 15.sp, lineHeight = 19.sp), color = fg, weight = FontWeight.SemiBold, maxLines = 1)
-                    Txt(t.artist, Modifier.shared("artist", text = true).clearAndSetSemantics {}, style = Type.caption.copy(fontSize = 13.sp, lineHeight = 17.sp), color = fg.copy(alpha = 0.68f), maxLines = 1)
+                    Txt(t.artist, Modifier.shared("artist", text = true).clearAndSetSemantics {}, style = Type.caption.copy(fontSize = 13.sp, lineHeight = 17.sp), color = fg.copy(alpha = 0.72f), maxLines = 1)
                 }
-                val hasOptions = options && (mode == "queue" || rememberLyrics(t).orEmpty().isNotEmpty())
                 if (!options) ActionBtn(Ic.ChevronUp, "Open player", null, fg, onOpen)
-                else if (hasOptions) ActionBtn(Ic.Tune, if (mode == "queue") "Playback options" else "Lyrics options", tray, fg) { tray = !tray }
+                else if (hasOptions) ActionBtn(Ic.Tune, if (mode == "queue") "Playback options" else "Lyrics options", tray, fg) { NowBarTray.open = !tray }
             }
         }
     }
@@ -287,3 +292,8 @@ private fun Step(icon: ImageVector, desc: String, fg: Color, onClick: () -> Unit
     Box(Modifier.size(36.dp).semantics { contentDescription = desc }.pressable(scale = 0.85f, onClick = onClick), Alignment.Center) {
         Icon(icon, null, size = 16.dp, tint = fg)
     }
+
+/** Whether the now bar's option tray is open on the Queue and Lyrics panes: open by default, then the user's last choice (this session). */
+object NowBarTray {
+    var open by mutableStateOf(true)
+}
