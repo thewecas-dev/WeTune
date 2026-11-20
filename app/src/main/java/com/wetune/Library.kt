@@ -56,12 +56,11 @@ object Library {
 
     // Likes: YouTube songs sync to the account when signed in; everything else is stored here.
     fun isLiked(t: Track): Boolean =
-        if (t.source == "yt" && InnerTube.signedIn) t.ref in Sync.liked else liked.any { it.id == t.id }
+        if (t.source == "yt" && InnerTube.signedIn) Sync.isLiked(t) else liked.any { it.id == t.id }
 
-    /** Blocking when it talks to YouTube; call via [io]. */
     fun toggleLike(t: Track) {
         val on = !isLiked(t)
-        if (t.source == "yt" && InnerTube.signedIn) Sync.setLiked(t.ref, on)
+        if (t.source == "yt" && InnerTube.signedIn) Sync.setLiked(t, on)
         else {
             liked = if (on) listOf(t) + liked else liked.filter { it.id != t.id }
             save()

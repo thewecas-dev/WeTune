@@ -7,6 +7,8 @@ import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
 /** SharedPreferences exposed as Compose state, so the UI updates when a setting changes. */
+const val COVER_AUTO = Int.MIN_VALUE
+
 object Settings {
     private val prefs by lazy { App.ctx.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     // every setting by key (filled as the delegates below are created), so a settings file can be applied
@@ -17,26 +19,57 @@ object Settings {
     var subsonicUrl by Str("subsonic_url", "")
     var subsonicUser by Str("subsonic_user", "")
     var subsonicPass by Str("subsonic_pass", "")
-    var theme by Str("theme", "system") // system | light | dark | black
-    var matchAccent by Bool("match_accent", true)
-    var accentHue by IntPref("accent_hue", -1) // fixed accent hue (0–359) when not matching the song; -1 = WeTune's own
+    var spotifyDc by Str("spotify_dc", "") // the Spotify login cookie (sp_dc), only for Canvas; only ever sent to Spotify
+    var theme by Str("theme", "system") // system | light | dark
+    var libraryLayout by Str("library_layout", "list") // list | grid (2 across) | grid3 (3 across)
+    var glassTint by IntPref("glass_tint", 62) // frosted surfaces: how much tint over the blur, 0..100 %
+    var glassBlur by IntPref("glass_blur", 40) // frosted surfaces: blur radius in dp, 0..60
     var textScale by IntPref("text_scale", 100) // app text size, % of the system font size
     var startTab by Str("start_tab", "home") // the tab WeTune opens on: home | library
     var lyricsRoman by Bool("lyrics_roman", false) // show a Latin-letter reading under each lyric line
     var romanInline by Bool("roman_inline", false) // the one-line lyric above the seek bar in Latin letters
+    var romanKeep by Str("roman_keep", "") // scripts the reader knows, left as written (comma-separated, see lyricScript): TAMIL,DEVANAGARI,…
     var lyricsWords by Bool("lyrics_words", true) // prefer word-by-word lyrics and light them up letter by letter
+    var lyricsOrder by Str("lyrics_order", "") // lyric sources in the order to prefer, comma-separated; "" = automatic (best match)
     var inlineWords by Bool("inline_words", true) // the one-line lyric above the seek bar fills letter by letter
     var cacheV2 by Bool("cache_v2", false) // audio cache re-keyed by stream (see PlaybackService)
     var cacheMb by IntPref("cache_mb", 512) // audio cache limit; read when the cache opens (the next start)
     var radioSeed by Str("radio_seed", "") // YouTube id the current radio started from, so auto-added songs stay related
     var lastFrom by Str("last_from", "") // what the current queue was started from, kind + NUL + name
-    // Now Playing's whole look (NowPlayingStyle as JSON). Empty until first run, which builds it from the pre-2.0 keys
-    // (np_cover, np_fill, np_layout, np_header, np_hide_status, np_depth, depth_*, show_volume, show_inline,
-    // inline_style); those are left in place and only read for that migration.
-    var npStyle by Str("np_style", "")
-
-    /** A raw preference (null when never set); only for migrating old keys. */
-    fun legacy(key: String): Any? = prefs.all[key]
+    var playerStyle by Str("player_style", "apple") // Now Playing only: apple | material (the rest of the app is always Apple-like)
+    // Now Playing look (np2_ keys: the 0.x app left differently typed np_* keys on devices)
+    var npHideStatus by Bool("np2_hide_status", true)
+    var npShuffleRepeat by Bool("np2_shuffle_repeat", true) // Shuffle and Repeat beside the play controls (they stay in the queue either way)
+    var npVideoCover by Bool("np2_video_cover", false) // the song's music video plays in place of the cover (muted, looping)
+    var npVideoWifiOnly by Bool("np2_video_wifi_only", true) // ...only on Wi-Fi (saves mobile data)
+    var npBackground by Str("np2_background", "flow") // flow | gradient | blur | edge (older choices map to the nearest; see backdrop)
+    var coverSize by IntPref("np2_cover_size", 80) // % of the screen width, 55..120 (past 100 bleeds off the edges)
+    var coverRadius by IntPref("np2_cover_radius", 10) // % of half the cover: 0 sharp .. 100 circle
+    // each corner on its own (top left, top right, bottom right, bottom left; same % as coverRadius) instead of coverRadius
+    var coverCornersSplit by Bool("np2_cover_corners_split", false)
+    var coverCornerTL by IntPref("np2_cover_corner_tl", 10)
+    var coverCornerTR by IntPref("np2_cover_corner_tr", 10)
+    var coverCornerBR by IntPref("np2_cover_corner_br", 10)
+    var coverCornerBL by IntPref("np2_cover_corner_bl", 10)
+    var coverShadow by Bool("np2_cover_shadow", false)
+    var coverShadowStrength by IntPref("np2_cover_shadow_strength", 50) // 0..100
+    // where the cover sits between the screen's edges, 0..100: 0 = its top on the screen's top edge, 100 = its bottom on the
+    // bottom edge. COVER_AUTO = halfway between the top of the screen and the controls card. (np2_cover_pos was dp from
+    // the centre, left behind.)
+    var coverPlace by IntPref("np2_cover_place", COVER_AUTO)
+    var coverAspect by Str("np2_cover_aspect", "1:1") // 1:1 | 4:5 | 3:4 | 9:16 | 16:9 | device (the phone screen's shape) | original (the artwork's own shape, uncropped)
+    var coverStyle by Str("np2_cover_style", "plain") // plain | squircle | glow | tilt | polaroid | stack | disc | record (see CoverStyles)
+    var sheetRadius by IntPref("np2_sheet_radius", -1) // controls sheet corners in dp, 0..48; -1 = match the screen's own corners
+    var npCard by Bool("np2_card", true) // a frosted card behind the Now Playing controls
+    var npCardInset by IntPref("np2_card_inset", 8) // dp from the screen edges, 0..24
+    var npCardTint by Str("np2_card_tint", "auto") // auto (frosted, as the navbar) | black | white | accent | dominant | neutral (cover tones)
+    var npCardStrength by IntPref("np2_card_strength", 70) // tint strength for the non-frosted tints, 0..100 %
+    var npCardBlur by IntPref("np2_card_blur", 40) // dp, 0 (no blur)..80
+    var npCardShadow by Bool("np2_card_shadow", false) // a soft shadow under the controls card
+    var npCardShadowStrength by IntPref("np2_card_shadow_strength", 50) // 10..100
+    var inlineLyrics by IntPref("np2_inline_lyrics", 1) // lines of lyrics in the normal sheet: 0 (off) | 1 | 3
+    var seekStyle by Str("np2_seek", "auto") // auto (follows the player style) | thin | thick | squiggly | wavy | waves
+    var seekColor by Str("np2_seek_color", "theme") // theme (white / black) | cover (the cover's accent tone)
     // the full lyrics panel
     var lyricsMotion by Str("lyrics_motion", "glide") // how it moves between lines: glide | fade | instant
     var lyricsAlign by Str("lyrics_align", "start") // start | center | end
@@ -63,8 +96,11 @@ object Settings {
         recentSearches = (listOf(q) + recentSearches.lines().filter { it.isNotBlank() && !it.equals(q, ignoreCase = true) }).take(10).joinToString("\n")
     }
 
+    /** The value [key] has when the user never changed it (null for an unknown key). */
+    fun defaultOf(key: String): Any? = all[key]?.default
+
     // never written to a settings file: sign-in secrets and what's playing / was searched
-    private val PRIVATE = setOf("cookie", "subsonic_pass", "radio_seed", "last_from", "recent_searches", "cache_v2")
+    private val PRIVATE = setOf("cookie", "subsonic_pass", "spotify_dc", "radio_seed", "last_from", "recent_searches", "cache_v2")
 
     /** Every setting the user changed (incl. the Now Playing style), minus sign-in secrets and passing state, as JSON. */
     fun exportJson(): String = settingsJson(all.keys.filter { it !in PRIVATE && prefs.contains(it) }.associateWith { prefs.all[it] })
@@ -82,9 +118,10 @@ object Settings {
     private abstract class Pref(val key: String, val kind: Char) {
         init { all[key] = this }
         abstract fun reload()
+        abstract val default: Any
     }
 
-    private class Str(key: String, val default: String) : Pref(key, 's'), ReadWriteProperty<Any?, String> {
+    private class Str(key: String, override val default: String) : Pref(key, 's'), ReadWriteProperty<Any?, String> {
         private val state by lazy { mutableStateOf(prefs.getString(key, default) ?: default) }
         override fun reload() { state.value = prefs.getString(key, default) ?: default }
         override fun getValue(thisRef: Any?, property: KProperty<*>) = state.value
@@ -94,7 +131,7 @@ object Settings {
         }
     }
 
-    private class IntPref(key: String, val default: Int) : Pref(key, 'i'), ReadWriteProperty<Any?, Int> {
+    private class IntPref(key: String, override val default: Int) : Pref(key, 'i'), ReadWriteProperty<Any?, Int> {
         private val state by lazy { mutableStateOf(prefs.getInt(key, default)) }
         override fun reload() { state.value = prefs.getInt(key, default) }
         override fun getValue(thisRef: Any?, property: KProperty<*>) = state.value
@@ -104,7 +141,7 @@ object Settings {
         }
     }
 
-    private class Bool(key: String, val default: Boolean) : Pref(key, 'b'), ReadWriteProperty<Any?, Boolean> {
+    private class Bool(key: String, override val default: Boolean) : Pref(key, 'b'), ReadWriteProperty<Any?, Boolean> {
         private val state by lazy { mutableStateOf(prefs.getBoolean(key, default)) }
         override fun reload() { state.value = prefs.getBoolean(key, default) }
         override fun getValue(thisRef: Any?, property: KProperty<*>) = state.value

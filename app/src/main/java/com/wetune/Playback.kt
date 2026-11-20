@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
@@ -26,6 +27,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 const val CMD_SLEEP = "wetune.sleep"
+const val CMD_OUTPUT = "wetune.output" // args "id": an AudioDeviceInfo id to play through, or -1 for Android's choice
 const val CMD_LIKE = "wetune.like"
 const val CMD_RELOAD = "wetune.reload" // reload the playing song at the same spot (after picking another version)
 
@@ -72,17 +74,46 @@ object Playback {
     /** When the sleep timer stops playback (epoch ms), or 0 when no timer is set. */
     var sleepEndsAt by mutableStateOf(0L); private set
 
+    private var appCtx: Context? = null
+    private var connecting = false
+    /** Commands asked for while the link to the player service was down; run once it's back. */
+    private val pending = mutableListOf<(MediaController) -> Unit>()
+
+    /**
+     * Links the app to the player service. The service can be stopped or restarted by Android (in the background, or
+     * after being swiped away while paused); the old link then goes dead, so this notices and links again, and any
+     * button pressed meanwhile is replayed once linked (before, it silently did nothing).
+     */
     fun connect(context: Context) {
-        if (c != null) return
         val ctx = context.applicationContext
-        val future = MediaController.Builder(ctx, SessionToken(ctx, ComponentName(ctx, PlaybackService::class.java))).buildAsync()
+        appCtx = ctx
+        c?.let { if (it.isConnected) return else { it.release(); c = null } }
+        if (connecting) return
+        connecting = true
+        val future = MediaController.Builder(ctx, SessionToken(ctx, ComponentName(ctx, PlaybackService::class.java)))
+            .setListener(object : MediaController.Listener {
+                override fun onDisconnected(controller: MediaController) { if (c === controller) c = null }
+            })
+            .buildAsync()
         future.addListener({
-            c = future.get().also {
-                it.addListener(listener)
-                sync(it, full = true)
-            }
+            connecting = false
+            val m = runCatching { future.get() }.getOrNull() ?: return@addListener
+            c = m
+            m.addListener(listener)
+            sync(m, full = true)
+            pending.toList().also { pending.clear() }.forEach { it(m) }
         }, ContextCompat.getMainExecutor(ctx))
     }
+
+    /** Runs [f] on a live link to the player, linking again first if it dropped. */
+    private fun cmd(f: (MediaController) -> Unit) {
+        val m = c
+        if (m != null && m.isConnected) f(m)
+        else { pending += f; appCtx?.let(::connect) }
+    }
+
+    /** After a song failed to load the player sits idle: moving to another song must also start it loading again. */
+    private fun revive(m: MediaController) { if (m.playbackState == Player.STATE_IDLE) m.prepare() }
 
     fun release() {
         c?.release()
@@ -106,14 +137,15 @@ object Playback {
     }
 
     fun play(list: List<Track>, start: Int = 0, from: Pair<String, String>? = null) {
-        val c = c ?: return
         if (list.isEmpty()) return
-        this.from = from
-        Settings.radioSeed = "" // a new queue; startRadio sets its own seed right after
-        Settings.lastFrom = from?.let { "${it.first}0000${it.second}" }.orEmpty()
-        c.setMediaItems(list.map { it.toMediaItem() }, start.coerceIn(0, list.size - 1), 0)
-        c.prepare()
-        c.play()
+        cmd { c ->
+            this.from = from
+            Settings.radioSeed = "" // a new queue; startRadio sets its own seed right after
+            Settings.lastFrom = from?.let { "${it.first}0000${it.second}" }.orEmpty()
+            c.setMediaItems(list.map { it.toMediaItem() }, start.coerceIn(0, list.size - 1), 0)
+            c.prepare()
+            c.play()
+        }
     }
 
     /**
@@ -143,40 +175,34 @@ object Playback {
         }
     }
 
-    fun playNext(t: Track) {
-        val c = c ?: return play(listOf(t))
-        if (c.mediaItemCount == 0) return play(listOf(t))
-        c.addMediaItem(c.currentMediaItemIndex + 1, t.toMediaItem())
-        toast("Plays next")
+    fun playNext(t: Track) = cmd { c ->
+        if (c.mediaItemCount == 0) play(listOf(t))
+        else { c.addMediaItem(c.currentMediaItemIndex + 1, t.toMediaItem()); toast("Plays next") }
     }
 
-    fun enqueue(t: Track) {
-        val c = c ?: return
-        if (c.mediaItemCount == 0) return play(listOf(t))
-        c.addMediaItem(t.toMediaItem())
-        toast("Added to queue")
+    fun enqueue(t: Track) = cmd { c ->
+        if (c.mediaItemCount == 0) play(listOf(t))
+        else { c.addMediaItem(t.toMediaItem()); toast("Added to queue") }
     }
 
-    fun toggle() {
-        val c = c ?: return
-        if (c.isPlaying) c.pause() else {
-            if (c.playbackState == Player.STATE_IDLE) c.prepare()
-            c.play()
-        }
+    fun toggle() = cmd { c ->
+        if (c.isPlaying) c.pause() else { revive(c); c.play() }
     }
 
-    fun next() = c?.seekToNext()
-    fun prev() = c?.seekToPrevious()
-    fun seek(ms: Long) = c?.seekTo(ms)
-    fun skipTo(i: Int) = c?.seekTo(i, 0)
-    fun remove(i: Int) = c?.removeMediaItem(i)
-    fun move(from: Int, to: Int) = c?.moveMediaItem(from, to)
-    fun insert(i: Int, t: Track) = c?.let { it.addMediaItem(i.coerceIn(0, it.mediaItemCount), t.toMediaItem()) }
-    fun toggleShuffle() = c?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
+    // moving to another song also restarts loading if the player went idle after a failed song
+    fun next() = cmd { c -> c.seekToNext(); revive(c) }
+    /** The previous song; past the first few seconds of a song, back to its start first (as every player does). */
+    fun prev() = cmd { c -> c.seekToPrevious(); revive(c) }
+    fun seek(ms: Long) = cmd { c -> c.seekTo(ms) }
+    fun skipTo(i: Int) = cmd { c -> c.seekTo(i, 0); revive(c); c.play() }
+    fun remove(i: Int) = cmd { c -> c.removeMediaItem(i) }
+    fun move(from: Int, to: Int) = cmd { c -> c.moveMediaItem(from, to) }
+    fun insert(i: Int, t: Track) = cmd { c -> c.addMediaItem(i.coerceIn(0, c.mediaItemCount), t.toMediaItem()) }
+    fun toggleShuffle() = cmd { c -> c.shuffleModeEnabled = !c.shuffleModeEnabled }
 
     /** off → all → one → off */
-    fun cycleRepeat() = c?.let {
-        it.repeatMode = when (it.repeatMode) {
+    fun cycleRepeat() = cmd { c ->
+        c.repeatMode = when (c.repeatMode) {
             Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
             else -> Player.REPEAT_MODE_OFF
@@ -184,7 +210,19 @@ object Playback {
     }
 
     fun position(): Long = c?.currentPosition ?: 0
-    fun duration(): Long = c?.duration?.takeIf { it > 0 } ?: 0
+    // the player's own once known (C.TIME_UNSET before that), else the length the song came with
+    fun duration(): Long = c?.duration?.takeIf { it > 0 } ?: current?.durationMs?.takeIf { it > 0 } ?: 0
+
+    /** [duration] as state, refreshed with the position, so derived values (the seek bar) update when it becomes known. */
+    var knownDuration by mutableLongStateOf(0L)
+
+    /** The output the user picked in Audio (an AudioDeviceInfo id), or -1: Android routes as usual. Not kept across restarts (ids change). */
+    var outputId by mutableIntStateOf(-1); private set
+
+    fun setOutput(id: Int) {
+        outputId = id
+        c?.sendCustomCommand(SessionCommand(CMD_OUTPUT, Bundle.EMPTY), bundleOf("id" to id))
+    }
     fun buffered(): Long = c?.bufferedPosition ?: 0
     /** Plays version [choice] of YouTube song [t] (from Audio options) right away, at the same spot, and from now on. */
     fun useVersion(t: Track, choice: String?) {
@@ -206,6 +244,7 @@ object Playback {
 fun rememberPosition(): State<Long> = produceState(0L) {
     while (true) {
         value = Playback.position()
+        Playback.duration().let { if (it != Playback.knownDuration) Playback.knownDuration = it }
         delay(250)
     }
 }

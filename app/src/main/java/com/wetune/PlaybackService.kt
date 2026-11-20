@@ -175,6 +175,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            android.util.Log.w("WeTune", "player error on ${player.currentMediaItem?.mediaMetadata?.title}: ${error.errorCodeName}", error)
             val t = player.currentMediaItem?.track()
             t?.let { Resolver.invalidate(it.source, it.ref) }
             // a broken cached copy or an expired link: drop the cached bytes and try this song once more with a fresh stream
@@ -268,7 +269,7 @@ class PlaybackService : MediaSessionService() {
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult =
             MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(
-                    MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(SessionCommand(CMD_SLEEP, Bundle.EMPTY)).add(SessionCommand(CMD_LIKE, Bundle.EMPTY)).add(SessionCommand(CMD_RELOAD, Bundle.EMPTY)).build()
+                    MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(SessionCommand(CMD_SLEEP, Bundle.EMPTY)).add(SessionCommand(CMD_LIKE, Bundle.EMPTY)).add(SessionCommand(CMD_RELOAD, Bundle.EMPTY)).add(SessionCommand(CMD_OUTPUT, Bundle.EMPTY)).build()
                 )
                 .build()
 
@@ -283,6 +284,11 @@ class PlaybackService : MediaSessionService() {
                 m.track()?.let { Resolver.forget(it.source, it.ref) }
                 val at = player.currentPosition
                 refreshed(m)?.let { player.replaceMediaItem(player.currentMediaItemIndex, it); player.seekTo(at) }
+            }
+            if (customCommand.customAction == CMD_OUTPUT) {
+                // play through the picked device (null: Android's routing); if it disconnects, Android falls back by itself
+                val id = args.getInt("id", -1)
+                player.setPreferredAudioDevice(if (id < 0) null else getSystemService(android.media.AudioManager::class.java).getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.id == id })
             }
             if (customCommand.customAction == CMD_SLEEP) {
                 sleepJob?.cancel()

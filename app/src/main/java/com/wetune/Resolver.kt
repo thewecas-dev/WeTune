@@ -76,7 +76,7 @@ object Resolver {
             val id = "yt:$ref"
             AudioInfo.upgrading(id, "searching")
             val (lossless, saavn) = searches(ref, title!!, artist.orEmpty(), durationMs)
-            val yt = worker.submit<String> { source(source).streamUrl(ref, high) }
+            val yt = worker.submit<String> { source(source).streamUrl(audioRef(ref, title, artist.orEmpty(), durationMs), high) }
             val deadline = System.currentTimeMillis() + START_WAIT
             fun left() = (deadline - System.currentTimeMillis()).coerceAtLeast(1)
             runCatching { saavn?.get(left(), java.util.concurrent.TimeUnit.MILLISECONDS) }
@@ -85,7 +85,26 @@ object Resolver {
             AudioInfo.upgrading(id, "none")
             return yt.get().also { cache[key] = it to System.currentTimeMillis() + TTL }
         }
-        return source(source).streamUrl(ref, high).also { cache[key] = it to System.currentTimeMillis() + TTL }
+        return source(source).streamUrl(if (source == "yt" && title != null) audioRef(ref, title, artist.orEmpty(), durationMs) else ref, high).also { cache[key] = it to System.currentTimeMillis() + TTL }
+    }
+
+    /** Music videos already looked at: the id of the same recording's song version, or "" (already a song, or none found). */
+    private val audioOf = ConcurrentHashMap<String, String>()
+
+    /**
+     * For a music video, the same recording as a song (audio only, no intro, skit or outro from the video), found on
+     * YouTube Music by title and artist (strictly: SourceMatch.same, never a remix / live / cover); otherwise [ref]
+     * itself. The length isn't compared: a video often runs longer than its song. Looked up once per video.
+     */
+    private fun audioRef(ref: String, title: String, artist: String, durationMs: Long): String {
+        audioOf[ref]?.let { return it.ifEmpty { ref } }
+        val song = runCatching {
+            if (YouTube.videoType(ref).let { it == null || it == "MUSIC_VIDEO_TYPE_ATV" }) null
+            else YouTube.search(SourceMatch.queries(title, artist).first()).firstOrNull { it.ref != ref && SourceMatch.same(title, artist, 0, it) }?.ref
+        }.getOrNull()
+        audioOf[ref] = song.orEmpty()
+        if (song != null) UpgradeLog.add("video $ref plays as its song $song")
+        return song ?: ref
     }
 
     /** How long a not-yet-matched song waits for its better copies before starting on what's ready (kept short so play feels instant). */
@@ -204,14 +223,15 @@ object Resolver {
         }
         return order().mapNotNull { s ->
             if (s == "saavn") keep("saavn", "JioSaavn") {
-                runCatching { JioSaavn.search(q).take(5) }.getOrDefault(emptyList()).map {
+                // only real matches (title, artist, length within seconds; never a remix / live / cover): see SourceMatch.same
+                runCatching { JioSaavn.search(q) }.getOrDefault(emptyList()).filter { SourceMatch.same(t.title, t.artist, t.durationMs, it) }.take(5).map {
                     Version("saavn|" + it.ref, "JioSaavn", it.title, listOf(it.artist, it.album).filter(String::isNotBlank).joinToString(" · "),
                         if (JioSaavn.has320(it.ref)) "AAC · 320 kbps" else "AAC · 160 kbps", it.durationMs)
                 }
             }
             else Addons.enabled.firstOrNull { it.id == s }?.let { a ->
                 keep(a.id, a.name) {
-                    runCatching { Addons.search(a, q).take(5) }.getOrDefault(emptyList()).map {
+                    runCatching { Addons.search(a, q) }.getOrDefault(emptyList()).filter { SourceMatch.same(t.title, t.artist, t.durationMs, it) }.take(5).map {
                         Version("addon|" + it.ref, a.name, it.title, listOf(it.artist, it.album).filter(String::isNotBlank).joinToString(" · "),
                             Addons.qualityOf(it.ref) ?: "Lossless", it.durationMs)
                     }

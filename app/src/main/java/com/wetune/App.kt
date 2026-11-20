@@ -28,11 +28,14 @@ class App : Application() {
         InnerTube.cookieProvider = { Settings.cookie }
         InnerTube.onAuthError = { Sync.expired = true }
         Library.load()
-        io { Sync.refresh(force = true) }
+        Sync.start()
     }
 
     companion object {
         lateinit var ctx: App
+
+        /** True while an activity is on screen; background pulls pause otherwise. */
+        @Volatile var foreground = false
 
         @OptIn(UnstableApi::class)
         val cache: SimpleCache by lazy {
