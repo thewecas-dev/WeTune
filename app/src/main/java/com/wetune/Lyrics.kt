@@ -106,14 +106,36 @@ object Lyrics {
         // what arrived within 4 s; only when nothing did, wait longer for the slow ones (a bad network)
         val found = collect(4_000).ifEmpty { collect(15_000) }
         if (found.isEmpty() && futures.any { !it.isDone }) troubled.add(t.id)
-        return rank(found, t.durationMs, Settings.lyricsWords)
+        return rank(found, t.durationMs, Settings.lyricsWords, t.title, t.artist, Settings.lyricsOrder.split(',').filter { it.isNotBlank() })
     }
 
-    /** Word-timed first (when [words] style is on), then line-synced, then plain; closest in length first; repeats dropped. */
-    fun rank(all: List<Version>, durationMs: Long, words: Boolean): List<Version> = all
-        .sortedWith(compareByDescending<Version> { it.words && words }.thenByDescending { it.synced }.thenBy { diff(it.durationMs, durationMs) })
-        .distinctBy { v -> Triple(v.words, v.synced, v.lines.joinToString("\n") { Query.norm(it.text) }) }
-        .take(15)
+    /** Lyric sources, in the order Settings › Lyrics lists them for reordering. */
+    val Sources = listOf("BetterLyrics", "LRCLIB", "lrc.red", "KuGou", "NetEase", "YouTube Music")
+
+    /**
+     * Best first. Versions that match the song (its title, and its artist where both say one) always come before ones
+     * that don't. Among those: with [order] (source names, the user's preference) the earlier source wins; without it
+     * (automatic), word-timed (when [words] style is on), then line-synced, then plain. Ties: closest in length.
+     * Repeats dropped.
+     */
+    fun rank(all: List<Version>, durationMs: Long, words: Boolean, title: String = "", artist: String = "", order: List<String> = emptyList()): List<Version> {
+        fun matches(v: Version): Boolean {
+            if (title.isBlank()) return true
+            val a = Query.norm(title); val b = Query.norm(v.title)
+            val titleOk = b.isNotEmpty() && (a.contains(b) || b.contains(a))
+            val ar = Query.norm(artist); val vr = Query.norm(v.artist)
+            val artistOk = ar.isEmpty() || vr.isEmpty() || ar.contains(vr) || vr.contains(ar) ||
+                artist.split(',', '&').any { p -> Query.norm(p).let { it.length > 2 && vr.contains(it) } }
+            return titleOk && artistOk
+        }
+        fun place(v: Version) = order.indexOfFirst { v.source.startsWith(it) }.let { if (it < 0) order.size else it }
+        val byQuality = compareByDescending<Version> { matches(it) }
+        val cmp = if (order.isEmpty()) byQuality.thenByDescending { it.words && words }.thenByDescending { it.synced }
+        else byQuality.thenBy { place(it) }.thenByDescending { it.synced }
+        return all.sortedWith(cmp.thenBy { diff(it.durationMs, durationMs) })
+            .distinctBy { v -> Triple(v.words, v.synced, v.lines.joinToString("\n") { Query.norm(it.text) }) }
+            .take(15)
+    }
 
     /** BetterLyrics: Apple-Music-style TTML, timed word by word ("Word"), by line ("Line"), or not at all. */
     private fun betterLyrics(q: Query, album: String): Version? {
