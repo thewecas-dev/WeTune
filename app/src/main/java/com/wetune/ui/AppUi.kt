@@ -78,10 +78,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import dev.chrisbanes.haze.HazeState
 import com.wetune.Settings
-import dev.chrisbanes.haze.HazeProgressive
 import androidx.compose.runtime.CompositionLocalProvider
 import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 
 private data class Tab(val screen: Screen, val icon: ImageVector, val label: String)
@@ -156,10 +154,6 @@ fun AppUi() {
                 }
             }
         }
-        // Frost behind the status bar, fading out below it (no hard edge), so scrolled content doesn't clash with the clock and icons.
-        val statusH = statusBarHeight()
-        val statusPx = with(androidx.compose.ui.platform.LocalDensity.current) { statusH.toPx() }
-        Box(Modifier.fillMaxWidth().height(statusH + 28.dp).hazeEffect(haze, style) { progressive = HazeProgressive.verticalGradient(startY = statusPx, startIntensity = 1f, endIntensity = 0f) })
         Column(
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
