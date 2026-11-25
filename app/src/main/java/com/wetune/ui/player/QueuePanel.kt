@@ -54,7 +54,11 @@ import com.wetune.ui.Type
 import com.wetune.ui.WT
 import com.wetune.ui.press
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import com.wetune.ui.Motion
+import com.wetune.ui.SwipeAction
 
 /**
  * The queue (full screen): Shuffle / Repeat / Automix pills, then every song. Drag a row's handle to reorder, swipe a
@@ -82,8 +86,8 @@ fun QueuePanel(modifier: Modifier = Modifier) {
         if (mat) heading()
         QueuePills()
         if (!mat) heading() else Box(Modifier.height(6.dp))
-        val state = rememberLazyListState()
-        LaunchedEffect(Unit) { state.scrollToItem((index - 1).coerceAtLeast(0)) }
+        // opens at the playing song (scrolling there after the first layout built the top rows, then built these again)
+        val state = rememberLazyListState(initialFirstVisibleItemIndex = (index - 1).coerceAtLeast(0))
         val rowPx = with(LocalDensity.current) { 58.dp.toPx() }
         var dragging by remember { mutableIntStateOf(-1) }
         var dragOffset by remember { mutableFloatStateOf(0f) }
@@ -97,8 +101,12 @@ fun QueuePanel(modifier: Modifier = Modifier) {
             if (queue.map { it.id } == local!!.map { it.id }) local = null
             else { delay(1500); local = null } // the player never confirmed: show what it has
         }
-        val shown = local ?: queue
+        // once the player's queue matches the order on screen, show it this very frame: it holds new Track objects, and the
+        // old copy kept until the effect above cleared it never matched the playing one (that row's mark blinked off)
+        val shown = local?.takeUnless { l -> l.size == queue.size && l.indices.all { l[it].id == queue[it].id } } ?: queue
         val playing = queue.getOrNull(index)
+        val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+        val reach = with(LocalDensity.current) { 88.dp.toPx() } // how far a slide must go to count, as on song rows
         // keys survive moves so a row being dragged keeps its gesture; repeats of the same song get a counter
         val keys = remember(shown) { val seen = HashMap<String, Int>(); shown.map { t -> val n = seen.merge(t.id, 1, Int::plus)!!; "${t.id}#$n" } }
         LazyColumn(Modifier.weight(1f), state = state, contentPadding = PaddingValues(bottom = 12.dp)) {
@@ -108,27 +116,50 @@ fun QueuePanel(modifier: Modifier = Modifier) {
                 val swipe = remember { Animatable(0f) }
                 val scope = rememberCoroutineScope()
                 val idx by rememberUpdatedState(i)
-                Row(
+                Box(
                     Modifier.fillMaxWidth().height(58.dp)
                         .then(if (isDragged) Modifier.zIndex(1f) else Modifier.animateItem())
-                        .graphicsLayer { translationY = if (isDragged) dragOffset else 0f; translationX = swipe.value; alpha = 1f - (-swipe.value / size.width).coerceIn(0f, 1f) * 0.7f }
+                        .graphicsLayer { translationY = if (isDragged) dragOffset else 0f },
+                ) {
+                // behind the row, only as wide as it has slid: right plays it next, left removes it
+                SwipeAction(Icons.PlayNext, "Play next", Alignment.CenterStart, { swipe.value }, reach)
+                SwipeAction(Icons.Trash, "Remove", Alignment.CenterEnd, { -swipe.value }, reach)
+                Row(
+                    Modifier.fillMaxWidth().height(58.dp)
+                        .graphicsLayer { translationX = swipe.value }
                         .clip(RoundedCornerShape(if (mat) 16.dp else 10.dp))
-                        .background(if (current) c.chip else if (isDragged) c.surfaceHigh else Color.Transparent)
+                        .background(if (current || isDragged) c.chip else Color.Transparent)
                         .pointerInput(Unit) {
                             detectHorizontalDragGestures(
                                 onDragEnd = {
+                                    val v = swipe.value
                                     scope.launch {
-                                        if (swipe.value < -size.width * 0.4f) { swipe.animateTo(-size.width.toFloat()); Playback.remove(idx); swipe.snapTo(0f) }
-                                        else swipe.animateTo(0f)
+                                        if (v <= -reach) { swipe.animateTo(-size.width.toFloat(), Motion.small()); Playback.remove(idx); swipe.snapTo(0f) }
+                                        else {
+                                            val cur = Playback.index
+                                            // moved, not added again; from above the playing song it lands right after it at `cur`
+                                            if (v >= reach && idx != cur && idx != cur + 1) Playback.move(idx, if (idx < cur) cur else cur + 1)
+                                            swipe.animateTo(0f, Motion.small())
+                                        }
                                     }
                                 },
-                                onHorizontalDrag = { ch, dx -> ch.consume(); scope.launch { swipe.snapTo((swipe.value + dx).coerceAtMost(0f)) } },
+                                onDragCancel = { scope.launch { swipe.animateTo(0f, Motion.small()) } },
+                                onHorizontalDrag = { ch, d ->
+                                    ch.consume()
+                                    val before = swipe.value
+                                    // past the threshold it drags with resistance, and stops at 1.5× it
+                                    val next = (before + if (abs(before) > reach) d * 0.35f else d).coerceIn(-reach * 1.5f, reach * 1.5f)
+                                    scope.launch { swipe.snapTo(next) }
+                                    if ((abs(before) < reach) != (abs(next) < reach)) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                },
                             )
                         }
-                        .press(if (current) "${t.title}, playing" else "Play ${t.title}", scale = 0.985f) { Playback.skipTo(i) }
+                        // long-press: the same song menu as everywhere else
+                        .press(if (current) "${t.title}, playing" else "Play ${t.title}", onLongClick = { com.wetune.ui.TrackMenu.show(t) }, scale = 0.985f) { Playback.skipTo(i) }
                         .semantics {
                             customActions = listOfNotNull(
                                 CustomAccessibilityAction("Remove from queue") { Playback.remove(idx); true },
+                                Playback.index.let { cur -> if (idx != cur && idx != cur + 1) CustomAccessibilityAction("Play next") { Playback.move(idx, if (idx < cur) cur else cur + 1); true } else null },
                                 if (idx > 0) CustomAccessibilityAction("Move up") { Playback.move(idx, idx - 1); true } else null,
                                 if (idx < queue.lastIndex) CustomAccessibilityAction("Move down") { Playback.move(idx, idx + 1); true } else null,
                             )
@@ -162,6 +193,9 @@ fun QueuePanel(modifier: Modifier = Modifier) {
                                     val steps = (dragOffset / rowPx).roundToInt()
                                     val to = (dragging + steps).coerceIn(0, list.lastIndex)
                                     if (steps != 0 && to != dragging) {
+                                        // hold the list still: by default it follows its top row by key, so dragging the
+                                        // top visible song down scrolled every row above it out of view
+                                        state.requestScrollToItem(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset)
                                         local = list.toMutableList().apply { add(to, removeAt(dragging)) } // on screen only
                                         dragOffset -= (to - dragging) * rowPx
                                         dragging = to
@@ -171,6 +205,7 @@ fun QueuePanel(modifier: Modifier = Modifier) {
                         },
                         contentAlignment = Alignment.Center,
                     ) { Icon(if (mat) MaterialIcons.Reorder else Icons.Reorder, c.onSecondary, 18.dp) }
+                }
                 }
             }
         }
