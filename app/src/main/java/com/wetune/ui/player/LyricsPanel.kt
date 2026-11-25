@@ -107,7 +107,8 @@ private fun Lines(t: Track, v: List<Lyrics.Version>, big: Boolean, style: TextSt
     val synced = lines.firstOrNull()?.ms?.let { it >= 0 } == true
     val pos = rememberPosition()
     val current by remember(lines) { derivedStateOf { if (synced) lines.indexOfLast { it.ms <= pos.value + 300 + Lyrics.offset(t.id) } else -1 } }
-    val state = rememberLazyListState()
+    // opens at the sung line (animating there from the top built every line on the way: a stutter on opening)
+    val state = rememberLazyListState(initialFirstVisibleItemIndex = (current - if (big) 2 else 1).coerceAtLeast(0))
     LaunchedEffect(current, big) { if (current >= 0) state.animateScrollToItem((current - if (big) 2 else 1).coerceAtLeast(0)) }
     val roman = Settings.lyricsRoman
 
@@ -147,7 +148,7 @@ private fun Lines(t: Track, v: List<Lyrics.Version>, big: Boolean, style: TextSt
  * shortcut: the sweep runs left to right; right-to-left scripts fill in the wrong direction (they show plain lines today).
  */
 @Composable
-private fun Karaoke(words: List<Lyrics.Word>, id: String, style: TextStyle) {
+internal fun Karaoke(words: List<Lyrics.Word>, id: String, style: TextStyle, modifier: Modifier = Modifier, lines: Int = Int.MAX_VALUE) {
     val c = WT.c
     val pos = rememberPosition()
     val now = produceState(pos.value, Playback.playing) {
@@ -161,10 +162,11 @@ private fun Karaoke(words: List<Lyrics.Word>, id: String, style: TextStyle) {
     val starts = remember(words) { words.runningFold(0) { acc, w -> acc + w.text.length } }
     var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
     val clip = remember { androidx.compose.ui.graphics.Path() }
-    Box {
-        BasicText(text, style = style.copy(color = c.on.copy(alpha = 0.4f)), onTextLayout = { layout = it })
+    val overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+    Box(modifier) {
+        BasicText(text, style = style.copy(color = c.on.copy(alpha = 0.4f)), onTextLayout = { layout = it }, overflow = overflow, maxLines = lines, softWrap = lines > 1)
         BasicText(
-            text, style = style.copy(color = c.on),
+            text, style = style.copy(color = c.on), overflow = overflow, maxLines = lines, softWrap = lines > 1,
             modifier = Modifier.drawWithContent {
                 val l = layout ?: return@drawWithContent
                 val t = now.value + Lyrics.offset(id)
@@ -234,11 +236,12 @@ private fun LyricsTools(t: Track, versions: List<Lyrics.Version>) {
         Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // always all three, in place; Source and Timing sit dimmed until the song has lyrics
+        // always all three, in place; Source and Timing sit dimmed until the song has lyrics. Romanize is a preference,
+        // not an action on these lyrics: it works (and shows on / off) while they load too.
         val has = versions.isNotEmpty()
         ToolPill(chosen?.source ?: "Source", false, Icons.Lyrics, Modifier.weight(1f), enabled = has) { Sheet.show { SourceSheet(t, versions) } }
         ToolPill(if (offset == 0L) "Timing" else "%+.1f s".format(offset / 1000f), offset != 0L, modifier = Modifier.weight(1f), enabled = has && chosen?.synced == true) { Sheet.show { TimingSheet(t, versions) } }
-        ToolPill("Romanize", Settings.lyricsRoman, modifier = Modifier.weight(1f), enabled = has) { Settings.lyricsRoman = !Settings.lyricsRoman }
+        ToolPill("Romanize", Settings.lyricsRoman, modifier = Modifier.weight(1f)) { Settings.lyricsRoman = !Settings.lyricsRoman }
     }
 }
 
@@ -394,9 +397,18 @@ fun InlineLyrics(t: Track, versions: List<Lyrics.Version>, lines: Int) {
                     val dist = kotlin.math.abs(d)
                     translationY = d * 28.dp.toPx()
                     if (lines == 1) {
-                        // one line: it rolls over its own middle on the way (tilted most halfway through, flat on landing)
-                        val step = roll.value - kotlin.math.floor(roll.value)
-                        rotationX = -70f * kotlin.math.sin(Math.PI * step).toFloat()
+                        // one line: the lines sit on a turning drum, [step]° apart, on a radius that keeps them a line
+                        // apart: the leaving one curves up and away tipping its top back, the arriving one rises from
+                        // under (positive rotationX tips the top edge away), each a little smaller as it turns off the front
+                        val step = 32f
+                        val deg = (d * step).coerceIn(-90f, 90f)
+                        val rad = Math.toRadians(deg.toDouble())
+                        val radius = 28.dp.toPx() / kotlin.math.sin(Math.toRadians(step.toDouble())).toFloat()
+                        translationY = radius * kotlin.math.sin(rad).toFloat()
+                        rotationX = -deg
+                        val s = 1f - 0.15f * (1f - kotlin.math.cos(rad).toFloat())
+                        scaleX = s; scaleY = s
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) // lines are start-aligned
                         cameraDistance = 10f * density
                     } else {
                         // three lines: a calm scroll; the line arriving in the middle grows a little, the one leaving settles back
@@ -406,7 +418,10 @@ fun InlineLyrics(t: Track, versions: List<Lyrics.Version>, lines: Int) {
                     }
                     alpha = (reach - dist).coerceIn(0f, 1f) * (1f - 0.62f * dist.coerceAtMost(1f)) // fades out at the rim; neighbours dim
                 }
+            val words = all.getOrNull(k)?.words
             if (music) Txt("♪", style.copy(fontSize = style.fontSize * 1.25f), line.wrapContentHeight(Alignment.CenterVertically), color = c.on.copy(alpha = 0.8f))
+            // the sung line fills word by word, as in full-screen lyrics (romanized text has no word timings: plain)
+            else if (k == current && !dragging && Settings.lyricsWords && words != null && text == raw) Karaoke(words, t.id, style, line.wrapContentHeight(Alignment.CenterVertically), lines = 1)
             else Txt(text, style, line.wrapContentHeight(Alignment.CenterVertically), color = c.on)
         }
     }
@@ -431,14 +446,18 @@ fun pillColors(on: Boolean, c: com.wetune.ui.WeColors): Pair<Color, Color> =
 @Composable
 internal fun ToolPill(text: String, on: Boolean, ic: com.wetune.ui.Ic? = null, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     val (bg, fg) = pillColors(on, WT.c)
+    // unavailable dims only the label and icon: the pill keeps its shape and fill, so off, on and unavailable pills
+    // still read as one row (fading the whole pill left an off pill as bare text and an on pill as dark text on nothing)
     val dim by androidx.compose.animation.core.animateFloatAsState(if (enabled) 1f else 0.4f, Motion.small(), label = "pill")
     Row(
-        modifier.height(36.dp).graphicsLayer { alpha = dim }.clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)).background(bg)
+        modifier.height(36.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)).background(bg)
             .then(if (enabled) Modifier.press(text, scale = 0.95f, onClick = onClick) else Modifier.semantics { contentDescription = "$text, unavailable"; disabled() })
             .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
     ) {
-        if (ic != null) com.wetune.ui.Icon(ic, fg, 16.dp)
-        Txt(text, pt(Type.sub.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), 13, 600), color = fg)
+        Row(Modifier.graphicsLayer { alpha = dim }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (ic != null) com.wetune.ui.Icon(ic, fg, 16.dp)
+            Txt(text, pt(Type.sub.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), 13, 600), color = fg)
+        }
     }
 }
