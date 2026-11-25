@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -18,12 +20,13 @@ class MainActivity : ComponentActivity() {
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // the launch screen (Theme.WeTune.Starting): once the app is ready the mark grows a little and fades while the
-        // blue lifts away, revealing the first frame underneath
-        installSplashScreen().setOnExitAnimationListener { splash ->
-            val fade = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
-            splash.iconView.animate().scaleX(1.35f).scaleY(1.35f).alpha(0f).setDuration(320).setInterpolator(fade).start()
-            splash.view.animate().alpha(0f).setStartDelay(60).setDuration(320).setInterpolator(fade).withEndAction { splash.remove() }.start()
+        // the system launch screen (Theme.WeTune.Starting) is only the plain page colour. On a cold start the first
+        // frame is ui/Splash.kt on that same colour, so it goes at once; otherwise it fades into the app.
+        val splash = savedInstanceState == null && !com.wetune.ui.splashPlayed
+        com.wetune.ui.splashPlayed = true
+        installSplashScreen().setOnExitAnimationListener { s ->
+            if (splash) s.remove()
+            else s.view.animate().alpha(0f).setDuration(250).withEndAction { s.remove() }.start()
         }
         super.onCreate(savedInstanceState)
         // see-through bars, no scrims: the app's own background shows under the status and navigation bars
@@ -50,6 +53,8 @@ class MainActivity : ComponentActivity() {
                 requestedOrientation = if (Settings.autoRotate) ActivityInfo.SCREEN_ORIENTATION_USER else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
             Root()
+            var showSplash by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(splash) }
+            if (showSplash) com.wetune.ui.Splash { showSplash = false }
         }
     }
 

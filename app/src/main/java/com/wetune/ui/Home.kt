@@ -273,10 +273,11 @@ private fun TileRow(cards: List<Card>, tracks: List<Track>, size: Dp, from: Stri
 @Composable
 private fun AppMark() {
     Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
-        Box(
-            Modifier.size(34.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFF74C0FF), Color(0xFF3B86F5)))),
-            contentAlignment = Alignment.Center,
-        ) { Image(painterResource(R.drawable.ic_launcher_foreground), "WeTune", Modifier.size(34.dp)) }
+        // the launcher icon's own two layers, so the header badge always matches the app icon
+        Box(Modifier.size(34.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
+            Image(painterResource(R.drawable.ic_launcher_background), null, Modifier.size(34.dp))
+            Image(painterResource(R.drawable.ic_launcher_foreground), "WeTune", Modifier.size(34.dp))
+        }
     }
 }
 

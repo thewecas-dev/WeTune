@@ -1,21 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The WeTune mark, "Listening together": two heads sharing one pair of headphones (navy band and ear cups, white
-     heads). Scaled to 88 % about the centre so the ear cups stay inside the adaptive icon's 66dp safe circle.
-     Also the themed (monochrome) icon: every part is filled, so it reads as one silhouette. -->
+<!-- The WeTune mark, "Cue": a record (black disc, its centre punched through to the tile) with the playhead, an amber
+     dot riding its edge at half past one. The dot's ring is the cream tile colour (#F3EFE6), so it reads as sitting on the edge.
+     Soft shadows fall straight down (no light source, no rims): under the disc onto the tile, under the dot onto the disc,
+     as radial gradients fading to nothing (vectors have no blur). ui/Splash.kt draws the same.
+     Everything stays inside the adaptive icon's 66dp safe circle (the dot reaches ~31dp from the centre, its shadow ~32). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.88" android:scaleY="0.88">
-        <path
-            android:pathData="M28,58 C28,26 80,26 80,58"
-            android:strokeColor="#FF132260"
-            android:strokeWidth="7"
-            android:strokeLineCap="round" />
-        <path android:fillColor="#FFFFFFFF" android:pathData="M29.5,62a12.5,12.5 0,1 0,25 0a12.5,12.5 0,1 0,-25 0z" />
-        <path android:fillColor="#FFFFFFFF" android:pathData="M53.5,62a12.5,12.5 0,1 0,25 0a12.5,12.5 0,1 0,-25 0z" />
-        <path android:fillColor="#FF132260" android:pathData="M28,54a4.5,4.5 0,0 1,4.5 4.5v8a4.5,4.5 0,0 1,-9 0v-8a4.5,4.5 0,0 1,4.5 -4.5z" />
-        <path android:fillColor="#FF132260" android:pathData="M80,54a4.5,4.5 0,0 1,4.5 4.5v8a4.5,4.5 0,0 1,-9 0v-8a4.5,4.5 0,0 1,4.5 -4.5z" />
-    </group>
+    <path android:pathData="M26,56.5a28,28 0,1 0,56 0a28,28 0,1 0,-56 0z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="54" android:centerY="56.5" android:gradientRadius="28">
+                <item android:offset="0" android:color="#1C000000" />
+                <item android:offset="0.82" android:color="#2E000000" />
+                <item android:offset="1" android:color="#00000000" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#FF141414"
+        android:fillType="evenOdd"
+        android:pathData="M31,54a23,23 0,1 0,46 0a23,23 0,1 0,-46 0zM50,54a4,4 0,1 0,8 0a4,4 0,1 0,-8 0z" />
+    <path android:pathData="M60.26,39.54a10,10 0,1 0,20 0a10,10 0,1 0,-20 0z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="70.26" android:centerY="39.54" android:gradientRadius="10">
+                <item android:offset="0" android:color="#21000000" />
+                <item android:offset="0.6" android:color="#38000000" />
+                <item android:offset="1" android:color="#00000000" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#FFFFB020"
+        android:strokeColor="#FFF3EFE6"
+        android:strokeWidth="2.5"
+        android:pathData="M63.76,37.74a6.5,6.5 0,1 0,13 0a6.5,6.5 0,1 0,-13 0z" />
 </vector>

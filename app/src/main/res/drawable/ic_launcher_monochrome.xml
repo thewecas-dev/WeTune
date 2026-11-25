@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed icon (Android 13+): one ink, so only real shapes count. The disc keeps its punched centre; the dot sits on
+     the edge without the tile-coloured ring (it would draw as ink too). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FF000000"
+        android:fillType="evenOdd"
+        android:pathData="M31,54a23,23 0,1 0,46 0a23,23 0,1 0,-46 0zM50,54a4,4 0,1 0,8 0a4,4 0,1 0,-8 0z" />
+    <path android:fillColor="#FF000000" android:pathData="M63.76,37.74a6.5,6.5 0,1 0,13 0a6.5,6.5 0,1 0,-13 0z" />
+</vector>

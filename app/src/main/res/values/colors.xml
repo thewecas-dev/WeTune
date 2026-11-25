@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- the launch screen: the icon's sky blue, between its gradient's two ends -->
-    <color name="splash_bg">#FF4F9BF8</color>
+    <!-- the launch screen: plain, the page background (window_bg) that ui/Splash.kt and Home start from; night in values-night -->
+    <color name="splash_bg">#FFF2F2F7</color>
     <!-- the window behind Compose: the app background (light theme; night in values-night) -->
     <color name="window_bg">#FFF2F2F7</color>
 </resources>
