@@ -65,6 +65,8 @@ object Icons {
     val Chevron = Ic(line("m9 5 7 7-7 7", 2.6f))
     val Plus = Ic(line("M12 5v14M5 12h14", 2.4f))
     val Check = Ic(line("m5 12.5 4.5 4.5L19 7.5", 2.6f))
+    val Share = Ic(line("M12 3v12M8 7l4-4 4 4M7 10H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1", 2f))
+    val Info = Ic(line("M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zM12 11v6", 2f), fill("M12 7a1.25 1.25 0 1 1 0 2.5A1.25 1.25 0 0 1 12 7z"))
     val Close = Ic(line("M6 6l12 12M18 6 6 18", 2.4f))
     val Download = Ic(line("M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14", 2.2f))
     val Downloaded = Ic(line("M12 2.5a9.5 9.5 0 1 1 0 19 9.5 9.5 0 0 1 0-19z", 1.8f), line("m7.5 12.5 3 3 6-6.5", 2.2f))

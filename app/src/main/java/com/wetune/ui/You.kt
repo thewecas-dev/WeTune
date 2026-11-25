@@ -91,6 +91,7 @@ private val PAGES = listOf(
     Triple("general", "General", Icons.Gear),
     Triple("nowplaying", "Now Playing", Icons.Play),
     Triple("lyrics", "Lyrics", Icons.Lyrics),
+    Triple("songmenu", "Song menu", Icons.More),
     Triple("playback", "Playback", Icons.Audio),
     Triple("sources", "Sources", Icons.Radio),
     Triple("storage", "Storage & backup", Icons.Download),
@@ -116,6 +117,7 @@ fun SettingsScreen(page: String) {
                     "general" -> General()
                     "nowplaying" -> com.wetune.ui.player.NowPlayingSettingsBody()
                     "lyrics" -> com.wetune.ui.player.LyricsSettingsBody()
+                    "songmenu" -> SongMenuSettingsBody()
                     "playback" -> PlaybackSettings()
                     "sources" -> Sources()
                     "storage" -> Storage()

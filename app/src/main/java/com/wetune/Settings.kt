@@ -31,6 +31,8 @@ object Settings {
     var romanKeep by Str("roman_keep", "") // scripts the reader knows, left as written (comma-separated, see lyricScript): TAMIL,DEVANAGARI,…
     var lyricsWords by Bool("lyrics_words", true) // prefer word-by-word lyrics and light them up letter by letter
     var lyricsOrder by Str("lyrics_order", "") // lyric sources in the order to prefer, comma-separated; "" = automatic (best match)
+    var songMenuPills by Str("song_menu_pills", "next,like,playlist") // the song menu's top buttons (≤3 action ids, see SongActions)
+    var songMenuOrder by Str("song_menu_order", "") // its rows in the user's order (action ids); "" = the default order
     var inlineWords by Bool("inline_words", true) // the one-line lyric above the seek bar fills letter by letter
     var cacheV2 by Bool("cache_v2", false) // audio cache re-keyed by stream (see PlaybackService)
     var cacheMb by IntPref("cache_mb", 512) // audio cache limit; read when the cache opens (the next start)
