@@ -35,6 +35,10 @@ fun LoginScreen() {
             factory = { ctx ->
                 CookieManager.getInstance().removeAllCookies(null)
                 WebView(ctx).apply {
+                    // AndroidView defaults to WRAP_CONTENT, which makes CSS 100vh = 0: Spotify's page collapses to blank
+                    layoutParams = android.view.ViewGroup.LayoutParams(-1, -1)
+                    // hazeSource records pages into a layer that drops the WebView's GPU-composited parts (Spotify's buttons): draw in software
+                    setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                     setBackgroundColor(bg.toArgb()) // no white flash between Google's pages in dark mode
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
@@ -72,6 +76,8 @@ fun SpotifyLoginScreen() {
             modifier = Modifier.weight(1f),
             factory = { ctx ->
                 WebView(ctx).apply {
+                    layoutParams = android.view.ViewGroup.LayoutParams(-1, -1) // MATCH_PARENT: see LoginScreen
+                    setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null) // see LoginScreen
                     setBackgroundColor(bg.toArgb())
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
