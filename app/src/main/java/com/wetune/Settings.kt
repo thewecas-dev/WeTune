@@ -41,9 +41,14 @@ object Settings {
     var playerStyle by Str("player_style", "apple") // Now Playing only: apple | material (the rest of the app is always Apple-like)
     // Now Playing look (np2_ keys: the 0.x app left differently typed np_* keys on devices)
     var npHideStatus by Bool("np2_hide_status", true)
+    var npGrabber by Bool("np2_grabber", true) // the drag handle at the top of Now Playing
+    var npPlayingFrom by Bool("np2_playing_from", true) // "Playing from" (album, playlist, radio…) at the top of Now Playing
     var npShuffleRepeat by Bool("np2_shuffle_repeat", true) // Shuffle and Repeat beside the play controls (they stay in the queue either way)
     var npVideoCover by Bool("np2_video_cover", false) // the song's music video plays in place of the cover (muted, looping)
     var npVideoWifiOnly by Bool("np2_video_wifi_only", true) // ...only on Wi-Fi (saves mobile data)
+    var npImmersiveAuto by Bool("np2_immersive_auto", false) // ...going in by itself when a song has a Canvas
+    var npImmersiveStyle by Str("np2_immersive_style", "capsule") // capsule (floating frosted pill) | type (title on the Canvas)
+    var immersiveLyrics by IntPref("immersive_lyrics", 0) // lyric lines over the Canvas in immersive view: 0 | 1 | 3
     var npBackground by Str("np2_background", "flow") // flow | gradient | blur | edge (older choices map to the nearest; see backdrop)
     var coverSize by IntPref("np2_cover_size", 80) // % of the screen width, 55..120 (past 100 bleeds off the edges)
     var coverRadius by IntPref("np2_cover_radius", 10) // % of half the cover: 0 sharp .. 100 circle
@@ -67,7 +72,7 @@ object Settings {
     var npCardTint by Str("np2_card_tint", "auto") // auto (frosted, as the navbar) | black | white | accent | dominant | neutral (cover tones)
     var npCardStrength by IntPref("np2_card_strength", 70) // tint strength for the non-frosted tints, 0..100 %
     var npCardBlur by IntPref("np2_card_blur", 40) // dp, 0 (no blur)..80
-    var npCardShadow by Bool("np2_card_shadow", false) // a soft shadow under the controls card
+    var npCardShadow by Bool("np2_card_shadow", true) // the logo's depth under the one Now Playing surface (mini player, card, capsule)
     var npCardShadowStrength by IntPref("np2_card_shadow_strength", 50) // 10..100
     var inlineLyrics by IntPref("np2_inline_lyrics", 1) // lines of lyrics in the normal sheet: 0 (off) | 1 | 3
     var seekStyle by Str("np2_seek", "auto") // auto (follows the player style) | thin | thick | squiggly | wavy | waves

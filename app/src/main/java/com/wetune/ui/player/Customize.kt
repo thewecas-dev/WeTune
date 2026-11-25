@@ -84,6 +84,8 @@ fun NowPlayingSettingsBody() {
         drop("Seek bar", "np2_seek", SeekStyles, Settings.seekStyle) { Settings.seekStyle = it }
         drop("Seek bar colour", "np2_seek_color", listOf("theme" to "Plain", "cover" to "Cover colour"), Settings.seekColor) { Settings.seekColor = it }
         SwitchRow("Shuffle and Repeat beside play", Settings.npShuffleRepeat) { Settings.npShuffleRepeat = it }
+        SwitchRow("Grabber", Settings.npGrabber) { Settings.npGrabber = it }
+        SwitchRow("Playing from", Settings.npPlayingFrom) { Settings.npPlayingFrom = it }
         SwitchRow("Hide status bar", Settings.npHideStatus, last = true) { Settings.npHideStatus = it }
     }
 
@@ -96,6 +98,11 @@ fun NowPlayingSettingsBody() {
         SwitchRow("Animated cover", Settings.npVideoCover, last = edge && !Settings.npVideoCover) { Settings.npVideoCover = it }
         if (Settings.npVideoCover) {
             SwitchRow("Only on Wi-Fi", Settings.npVideoWifiOnly) { Settings.npVideoWifiOnly = it }
+            // immersive view (the Canvas full screen over compact controls): tapping a playing Canvas always goes in and
+            // out; this goes in by itself whenever a song turns out to have one
+            SwitchRow("Immersive when a song has a Canvas", Settings.npImmersiveAuto) { Settings.npImmersiveAuto = it }
+            // its controls: the card shrunk into a floating pill, or just the title and play button on the Canvas
+            drop("Immersive style", "np2_immersive_style", listOf("capsule" to "Floating capsule", "type" to "Title on the Canvas"), Settings.npImmersiveStyle) { Settings.npImmersiveStyle = it }
             // Spotify Canvas needs the user's Spotify login; without it, Apple Music's animated album covers are used
             val spotify = Settings.spotifyDc.isNotBlank()
             GroupRow("Spotify Canvas", value = if (spotify) "Signed in" else "Sign in", chevron = !spotify, last = edge) {
@@ -171,6 +178,12 @@ fun LyricsSettingsBody() {
         val inline = Settings.inlineLyrics > 0
         drop("Lines", "np2_inline_lyrics", listOf("0" to "None", "1" to "One", "3" to "Three"), Settings.inlineLyrics.toString(), last = !inline) { Settings.inlineLyrics = it.toInt() }
         if (inline) SwitchRow("Romanized", Settings.romanInline, last = true) { Settings.romanInline = it }
+    }
+
+    // over the Canvas in immersive view (Settings › Now Playing › Animated cover › Immersive Canvas)
+    Caption("In immersive Canvas")
+    Group {
+        drop("Lines", "immersive_lyrics", listOf("0" to "None", "1" to "One", "3" to "Three"), Settings.immersiveLyrics.toString(), last = true) { Settings.immersiveLyrics = it.toInt() }
     }
 
     Caption("Full lyrics")

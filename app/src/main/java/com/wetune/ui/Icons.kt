@@ -72,10 +72,12 @@ object Icons {
     val Downloaded = Ic(line("M12 2.5a9.5 9.5 0 1 1 0 19 9.5 9.5 0 0 1 0-19z", 1.8f), line("m7.5 12.5 3 3 6-6.5", 2.2f))
     val Synced = Ic(line("M7 18.5h10a4.5 4.5 0 0 0 .6-8.96A6 6 0 0 0 6.1 9.6 4.5 4.5 0 0 0 7 18.5zM9.5 13.5l2 2 3.5-4", 2f))
     val Reset = Ic(line("M4 12a8 8 0 1 0 2.3-5.6M4 4v4.5h4.5", 2.2f)) // counter-clockwise arrow: back to the default
-    // a matching pair on one frame (same size and line weight), for the cover / video switch in Now Playing
-    private const val FRAME = "M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"
-    val Picture = Ic(line(FRAME, 2f), line("M3.5 16.5l5-5 4.5 4.5 2.5-2.5 5 5", 2f), fill("M16 8a1.6 1.6 0 1 1 0 3.2A1.6 1.6 0 0 1 16 8z")) // the still cover
-    val Video = Ic(line(FRAME, 2f), fill("M10 9.2v5.6l4.6-2.8z")) // the moving cover
+    // the cover / Canvas switch in Now Playing: a square picture (the still cover), a tall frame with play (the Canvas)
+    val Picture = Ic(
+        line("M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z", 2f),
+        line("M4.5 17.5l4.5-4.5 4 4 2.5-2.5 4 4", 2f), fill("M15 7.4a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2z"),
+    )
+    val Video = Ic(line("M8.5 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z", 2f), fill("M10.5 9.4v5.2l4.2-2.6z"))
     val Offline = Ic(line("M7 18.5h10a4.5 4.5 0 0 0 1.9-.42M20.9 14.6a4.5 4.5 0 0 0-3.3-5.06A6 6 0 0 0 9.4 5.2M6.6 8.2a6 6 0 0 0-.5 1.4A4.5 4.5 0 0 0 7 18.5M3 3l18 18", 2f))
     val Radio = Ic(line("M8.5 15.5a5 5 0 0 1 0-7M15.5 8.5a5 5 0 0 1 0 7M5.6 18.4a9 9 0 0 1 0-12.8M18.4 5.6a9 9 0 0 1 0 12.8", 2f), fill("M12 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4z"))
     val PlayNext = Ic(line("M4 6h11M4 12h7M4 18h7", 2f), fill("M14 11.2v7.6a.8.8 0 0 0 1.2.7l6.3-3.8a.8.8 0 0 0 0-1.4l-6.3-3.8a.8.8 0 0 0-1.2.7z"))

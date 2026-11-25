@@ -67,7 +67,9 @@ import com.wetune.Playback
 import com.wetune.Settings
 import com.wetune.rememberPosition
 import com.wetune.sources.Track
+import com.wetune.ui.GlyphDepth
 import com.wetune.ui.Ic
+import com.wetune.ui.depth
 import com.wetune.ui.Icon
 import com.wetune.ui.Icons
 import com.wetune.ui.MaterialIcons
@@ -293,7 +295,7 @@ private fun WavySeek(frac: androidx.compose.runtime.State<Float>, dragging: Bool
  * Queue buttons fly into their places (NowPlayingLayer positions them), so the row itself never changes shape.
  */
 @Composable
-fun Transport(modifier: Modifier = Modifier, sides: () -> Float = { 0f }) {
+fun Transport(modifier: Modifier = Modifier, sides: () -> Float = { 0f }, play: Boolean = true) {
     val c = WT.c
     val mat = material
     val playing = Playback.playing
@@ -311,14 +313,16 @@ fun Transport(modifier: Modifier = Modifier, sides: () -> Float = { 0f }) {
         else Spacer(Modifier.size(sw, sh))
         if (mat) {
             Tonal(MaterialIcons.Prev, "Previous") { Playback.prev() }
-            Box(
-                Modifier.size(96.dp, 66.dp).clip(RoundedCornerShape(24.dp)).background(c.primary).press(if (playing) "Pause" else "Play", scale = 0.94f) { Playback.toggle() },
+            if (!play) Spacer(Modifier.size(96.dp, 66.dp)) else Box(
+                // press first so the depth shrinks with the button
+                Modifier.size(96.dp, 66.dp).press(if (playing) "Pause" else "Play", scale = 0.94f) { Playback.toggle() }
+                    .depth(RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).background(c.primary),
                 contentAlignment = Alignment.Center,
             ) { Icon(if (playing) MaterialIcons.Pause else MaterialIcons.Play, c.onPrimary, 34.dp) }
             Tonal(MaterialIcons.Next, "Next") { Playback.next() }
         } else {
             Glyph(Icons.Prev, "Previous", 60.dp, 38.dp) { Playback.prev() }
-            Glyph(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", 64.dp, 42.dp) { Playback.toggle() }
+            if (!play) Spacer(Modifier.size(64.dp)) else Glyph(if (playing) Icons.Pause else Icons.Play, if (playing) "Pause" else "Play", 64.dp, 42.dp, lift = true) { Playback.toggle() }
             Glyph(Icons.Next, "Next", 60.dp, 38.dp) { Playback.next() }
         }
         val mode = Playback.repeat
@@ -335,8 +339,11 @@ val sideButtonSize: Pair<Dp, Dp> get() = if (material) 48.dp to 48.dp else 40.dp
 val actionButtonSize: Pair<Dp, Dp> get() = if (material) 0.dp to 48.dp else 56.dp to 44.dp
 
 @Composable
-private fun Glyph(ic: Ic, label: String, box: Dp, size: Dp, onClick: () -> Unit) =
-    Box(Modifier.size(box).press(label, scale = 0.86f, onClick = onClick), contentAlignment = Alignment.Center) { Icon(ic, WT.c.on, size) }
+private fun Glyph(ic: Ic, label: String, box: Dp, size: Dp, lift: Boolean = false, onClick: () -> Unit) =
+    Box(Modifier.size(box).press(label, scale = 0.86f, onClick = onClick), contentAlignment = Alignment.Center) {
+        if (lift) GlyphDepth(ic, size)
+        Icon(ic, WT.c.on, size)
+    }
 
 @Composable
 private fun Tonal(ic: Ic, label: String, onClick: () -> Unit) =

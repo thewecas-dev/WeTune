@@ -23,11 +23,8 @@ object NowPlaying {
     var panel by mutableStateOf(Panel.None)
     var lyricsFull by mutableStateOf(false)
 
-    /** Where the mini player's cover sits on screen, so opening can grow the cover from there. Plain field: no recomposition. */
-    var miniCover = Rect.Zero
-
-    /** Where the mini player's title + artist sit on screen, for the title flight. Plain field, like [miniCover]. */
-    var miniText = Rect.Zero
+    /** How far the controls card's top travels between open and the mini player (px), so a drag follows the finger 1:1. */
+    var dragSpan = 0f
 
     /** Where the cover sits by default, as % of the way from the screen's top edge to its bottom edge: the Position
      *  slider starts there (measured by the player; a typical phone's value until the player has been opened). */
@@ -37,6 +34,11 @@ object NowPlaying {
     var videoOn by mutableStateOf(true)
     /** The song whose music video was found (the Cover / Video switch shows only for it). */
     var videoFor by mutableStateOf<String?>(null)
+
+    /** Immersive view: the Canvas fills the screen over compact controls. Tapping a playing Canvas goes in and out. */
+    var immersive by mutableStateOf(false)
+    /** The song the user tapped out of immersive view on: the auto option leaves that song out (any other goes in). */
+    var immersiveAutoFor: String? = null
 
     val isOpen: Boolean get() = progress.targetValue > 0.5f
 
@@ -75,7 +77,8 @@ object NowPlaying {
     }
 }
 
-/** Vertical drag that opens / closes Now Playing, following the finger and settling by fling velocity. */
+/** Vertical drag that opens / closes Now Playing, following the finger and settling by fling velocity. [heightPx]: the
+ *  drag's span until Now Playing has measured its own ([NowPlaying.dragSpan]). */
 fun androidx.compose.ui.Modifier.sheetDrag(heightPx: Float): androidx.compose.ui.Modifier = pointerInput(heightPx) {
     val tracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
     var travelled = 0f // the layer moves under the finger, so track distance dragged, not the position in the layer
@@ -87,7 +90,7 @@ fun androidx.compose.ui.Modifier.sheetDrag(heightPx: Float): androidx.compose.ui
             change.consume()
             travelled += dy
             tracker.addPosition(change.uptimeMillis, androidx.compose.ui.geometry.Offset(0f, travelled))
-            NowPlaying.drag(dy, heightPx)
+            NowPlaying.drag(dy, NowPlaying.dragSpan.takeIf { it > 1f } ?: heightPx)
         },
     )
 }

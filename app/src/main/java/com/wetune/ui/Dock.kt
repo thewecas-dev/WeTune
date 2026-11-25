@@ -76,6 +76,22 @@ object Dock {
 
     /** Space a page leaves at its bottom so its last row clears the dock. */
     fun bottomPadding(playing: Boolean): Dp = if (playing) 168.dp else 92.dp
+
+    /** How folded the dock is (0..1, animated by [DockHost]); read in layout by the player, whose mini player sits in [miniSlot]. */
+    var fold: androidx.compose.runtime.State<Float> = androidx.compose.runtime.mutableFloatStateOf(0f)
+
+    /**
+     * The mini player's slot in the dock (root coordinates, px): above the tab capsule at rest, beside the folded tab
+     * button at [f] = 1. The player (NowPlayingLayer) is the one surface drawn there; the dock only leaves the room.
+     */
+    fun miniSlot(w: Int, h: Int, f: Float, navBottom: Int, d: androidx.compose.ui.unit.Density): androidx.compose.ui.geometry.Rect = with(d) {
+        val side = SIDE.roundToPx(); val bottom = BOTTOM.roundToPx() + navBottom
+        val navH = NAV_H.roundToPx(); val miniH = MINI_H.roundToPx(); val gap = GAP.roundToPx()
+        val groupW = minOf(w - 2 * side, MAX_W.roundToPx()); val x0 = (w - groupW) / 2
+        val x = lerp(x0.toFloat(), (x0 + miniH + 8.dp.roundToPx()).toFloat(), f).roundToInt()
+        val y = lerp((h - bottom - navH - gap - miniH).toFloat(), (h - bottom - miniH).toFloat(), f).roundToInt()
+        androidx.compose.ui.geometry.Rect(x.toFloat(), y.toFloat(), (x0 + groupW).toFloat(), (y + miniH).toFloat())
+    }
 }
 
 private val SIDE = 10.dp
@@ -93,20 +109,21 @@ fun DockHost() {
     val density = LocalDensity.current
     Dock.FOLD_PX = with(density) { 48.dp.toPx() }
     val playing = Playback.current != null
-    val fold by animateFloatAsState(if (Dock.folded && playing) 1f else 0f, Motion.fold(), label = "fold")
+    val foldState = animateFloatAsState(if (Dock.folded && playing) 1f else 0f, Motion.fold(), label = "fold")
+    Dock.fold = foldState
+    val fold by foldState
     val navInset = WindowInsets.navigationBars
 
+    // the mini player above the capsule (or beside it folded) is the player itself, drawn by NowPlayingLayer in
+    // [Dock.miniSlot]: the dock lays out only the capsule
     Layout(
         modifier = Modifier.fillMaxSize(),
-        content = {
-            TabCapsule(foldProvider = { fold })
-            if (playing) MiniPlayer() else Box(Modifier)
-        },
+        content = { TabCapsule(foldProvider = { fold }) },
     ) { measurables, constraints ->
         val w = constraints.maxWidth
         val h = constraints.maxHeight
         val side = SIDE.roundToPx(); val bottom = BOTTOM.roundToPx() + navInset.getBottom(this)
-        val navH = NAV_H.roundToPx(); val miniH = MINI_H.roundToPx(); val gap = GAP.roundToPx()
+        val navH = NAV_H.roundToPx(); val miniH = MINI_H.roundToPx()
         val f = fold
         // one centred column for both: the screen width less the sides, at most MAX_W
         val groupW = minOf(w - 2 * side, MAX_W.roundToPx()); val x0 = (w - groupW) / 2
@@ -114,15 +131,7 @@ fun DockHost() {
         val capW = lerp(groupW.toFloat(), miniH.toFloat(), f).roundToInt()
         val capH = lerp(navH.toFloat(), miniH.toFloat(), f).roundToInt()
         val cap = measurables[0].measure(Constraints.fixed(capW, capH))
-        // mini player: above the capsule at rest → beside the folded button
-        val miniX = lerp(x0.toFloat(), (x0 + miniH + 8.dp.roundToPx()).toFloat(), f).roundToInt()
-        val miniW = x0 + groupW - miniX
-        val mini = measurables[1].measure(Constraints.fixed(miniW.coerceAtLeast(0), miniH))
-        val miniY = lerp((h - bottom - navH - gap - miniH).toFloat(), (h - bottom - miniH).toFloat(), f).roundToInt()
-        layout(w, h) {
-            cap.place(x0, h - bottom - capH)
-            mini.place(miniX, miniY)
-        }
+        layout(w, h) { cap.place(x0, h - bottom - capH) }
     }
 }
 
@@ -215,79 +224,3 @@ private fun TabItem(t: Tab, on: () -> Float) {
     }
 }
 
-/** The one mini player: cover-ring disc (tap = play/pause), title, and the action button that opens Now Playing. */
-@Composable
-fun MiniPlayer(modifier: Modifier = Modifier) {
-    val c = WT.c
-    val t = Playback.current ?: return
-    val pos = rememberPosition()
-    val heightPx = with(LocalDensity.current) { 600.dp.toPx() }
-    // swipe sideways: left = next song, right = previous; the title follows the finger, then the next one slides in
-    val swipe = remember { androidx.compose.animation.core.Animatable(0f) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val reach = with(LocalDensity.current) { 80.dp.toPx() }
-    Row(
-        modifier.fillMaxSize().frost(CircleShape)
-            .graphicsLayer { alpha = 1f - NowPlaying.progress.value.coerceIn(0f, 1f) }
-            .sheetDrag(heightPx)
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragEnd = {
-                        val dx = swipe.value
-                        scope.launch {
-                            if (kotlin.math.abs(dx) >= reach) {
-                                val dir = if (dx < 0) -1f else 1f
-                                swipe.animateTo(dir * reach * 2.2f, tween(160, easing = Motion.Standard)) // the old title leaves
-                                if (dir < 0) Playback.next() else Playback.prev()
-                                swipe.snapTo(-dir * reach * 1.4f) // the new one comes from the other side
-                                swipe.animateTo(0f, tween(Motion.FOLD, easing = Motion.Decelerate))
-                            } else swipe.animateTo(0f, tween(Motion.SMALL, easing = Motion.Standard))
-                        }
-                    },
-                    onDragCancel = { scope.launch { swipe.animateTo(0f) } },
-                ) { ch, dx ->
-                    ch.consume()
-                    val before = swipe.value
-                    scope.launch { swipe.snapTo(before + dx) }
-                    if (kotlin.math.abs(before) < reach && kotlin.math.abs(before + dx) >= reach) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                }
-            }
-            .press("Open Now Playing", scale = 0.98f) { NowPlaying.open() }
-            .padding(start = 4.dp, end = 6.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Box(
-            Modifier.size(52.dp)
-                .drawBehind {
-                    val stroke = 2.6.dp.toPx(); val r = size.minDimension / 2 - stroke
-                    val tl = Offset(center.x - r, center.y - r); val s = Size(r * 2, r * 2)
-                    drawArc(c.on.copy(alpha = 0.16f), 0f, 360f, false, tl, s, style = Stroke(stroke))
-                    val d = Playback.duration()
-                    if (d > 0) drawArc(c.on, -90f, 360f * (pos.value.toFloat() / d).coerceIn(0f, 1f), false, tl, s, style = Stroke(stroke, cap = StrokeCap.Round))
-                }
-                .press(if (Playback.playing) "Pause ${t.title}" else "Play ${t.title}", scale = 0.9f) { Playback.toggle() },
-            contentAlignment = Alignment.Center,
-        ) {
-            Cover(t.art, 40.dp, 20.dp, Modifier.onGloballyPositioned { NowPlaying.miniCover = it.boundsInRoot() })
-            Box(Modifier.size(40.dp).background(Color(0x52000000), CircleShape))
-            Icon(if (Playback.playing) Icons.Pause else Icons.Play, Color.White, 15.dp)
-        }
-        // hidden while Now Playing is open or flying: its title and artist fly in from Now Playing's header instead
-        MiniTitle(t, Modifier.weight(1f).onGloballyPositioned { NowPlaying.miniText = it.boundsInRoot() }.graphicsLayer {
-            translationX = swipe.value
-            alpha = if (NowPlaying.progress.value > 0f) 0f else (1f - kotlin.math.abs(swipe.value) / (reach * 2.2f)).coerceIn(0f, 1f)
-        })
-        Box(
-            Modifier.size(36.dp).background(c.chip, CircleShape).press("Open Now Playing", scale = 0.9f) { NowPlaying.open() },
-            contentAlignment = Alignment.Center,
-        ) { Icon(Icons.Up, c.on, 16.dp) }
-    }
-}
-
-/** The mini player's title and artist; also drawn by Now Playing's title flight, so both ends match exactly. */
-@Composable
-fun MiniTitle(t: com.wetune.sources.Track, modifier: Modifier = Modifier) = Column(modifier) {
-    Txt(t.title, Type.row.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold))
-    Txt(t.artist, Type.sub, color = WT.c.onSecondary)
-}
