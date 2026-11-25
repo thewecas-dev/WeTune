@@ -130,7 +130,7 @@ fun DockHost() {
 private fun TabCapsule(foldProvider: () -> Float) {
     val c = WT.c
     val fold = foldProvider()
-    Box(Modifier.frost(RoundedCornerShape(30.dp))) {
+    Box(Modifier.depth(RoundedCornerShape(30.dp)).frost(RoundedCornerShape(30.dp))) {
         // the four tabs, laid out at full width so folding clips them instead of squeezing them
         if (fold < 0.99f) TabRow(
             Modifier.fillMaxHeight().wrapContentWidth(Alignment.Start, unbounded = true).requiredWidth(minOf(WidthOfScreen() - SIDE * 2, MAX_W)) // the capsule's own resting width
@@ -141,7 +141,7 @@ private fun TabCapsule(foldProvider: () -> Float) {
                 .press("Tabs, current: ${Nav.tab.label}. Show all tabs") { Dock.folded = false },
             contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.size(48.dp).background(c.primary, CircleShape), contentAlignment = Alignment.Center) { Icon(Nav.tab.ic, c.onPrimary, 22.dp) }
+            Box(Modifier.size(48.dp).depth(CircleShape, 0.8f, blur = 6.dp, drop = 2.dp).background(c.primary, CircleShape), contentAlignment = Alignment.Center) { Icon(Nav.tab.ic, c.onPrimary, 22.dp) }
         }
     }
 }
@@ -166,6 +166,8 @@ private fun TabRow(modifier: Modifier) {
             val i = p.value.toInt().coerceIn(0, 3); val j = (i + 1).coerceAtMost(3); val f = p.value - i
             val left = lerp(geo.left[i], geo.left[j], f)
             val width = lerp(geo.width[i], geo.width[j], f)
+            // the pill sits on the capsule like the logo's dot on its disc: a small shadow straight down
+            drawDepth(androidx.compose.ui.geometry.Rect(Offset(left, 0f), Size(width, size.height)), size.height / 2, depthAlpha(c.dark, 0.8f))
             drawRoundRect(c.primary, Offset(left, 0f), Size(width, size.height), androidx.compose.ui.geometry.CornerRadius(size.height / 2))
         },
         content = { Tab.entries.forEachIndexed { i, t -> TabItem(t) { (1f - abs(p.value - i)).coerceIn(0f, 1f) } } },

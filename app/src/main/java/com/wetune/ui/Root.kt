@@ -115,7 +115,7 @@ private fun SheetHost() {
             if (content != null) shown.value = content
             Column(
                 Modifier.fillMaxWidth().padding(8.dp).navigationBarsPadding()
-                    .frost(RoundedCornerShape(30.dp), overPlayer = true)
+                    .depth(RoundedCornerShape(30.dp)).frost(RoundedCornerShape(30.dp), overPlayer = true)
                     .clickable(remember { MutableInteractionSource() }, null) {}
                     .padding(top = 8.dp, bottom = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
