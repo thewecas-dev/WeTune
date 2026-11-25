@@ -132,7 +132,7 @@ private class Drops { var open by mutableStateOf<String?>(null) }
 
 @Composable
 private fun Drops.drop(title: String, key: String, options: List<Pair<String, String>>, value: String, last: Boolean = false, set: (String) -> Unit) =
-    com.wetune.ui.player.Dropdown(title, options, value, open == title, last = last, key = key, onToggle = { open = if (open == title) null else title }) { set(it); open = null }
+    com.wetune.ui.player.Dropdown(title, options, value, open == key, last = last, key = key, onToggle = { open = if (open == key) null else key }) { set(it); open = null }
 
 @Composable
 private fun General() {

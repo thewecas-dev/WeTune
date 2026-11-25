@@ -73,9 +73,9 @@ private val Aspects = listOf(
 /** Settings › Now Playing: how the player looks, its cover, and the card behind its controls. */
 @Composable
 fun NowPlayingSettingsBody() {
-    var open by remember { mutableStateOf<String?>(null) } // one dropdown open at a time, across the sections
+    var open by remember { mutableStateOf<String?>(null) } // the open dropdown's key: one at a time, across the sections
     @Composable fun drop(title: String, key: String, options: List<Pair<String, String>>, value: String, last: Boolean = false, set: (String) -> Unit) =
-        Dropdown(title, options, value, open == title, last = last, key = key, onToggle = { open = if (open == title) null else title }) { set(it); open = null }
+        Dropdown(title, options, value, open == key, last = last, key = key, onToggle = { open = if (open == key) null else key }) { set(it); open = null }
 
     Caption("Look")
     Group {
@@ -162,9 +162,9 @@ fun NowPlayingSettingsBody() {
 /** Settings › Lyrics: inline lyrics under the title, the full lyrics, and romanization. */
 @Composable
 fun LyricsSettingsBody() {
-    var open by remember { mutableStateOf<String?>(null) }
+    var open by remember { mutableStateOf<String?>(null) } // the open dropdown's key (titles repeat: two "Lines")
     @Composable fun drop(title: String, key: String, options: List<Pair<String, String>>, value: String, last: Boolean = false, set: (String) -> Unit) =
-        Dropdown(title, options, value, open == title, last = last, key = key, onToggle = { open = if (open == title) null else title }) { set(it); open = null }
+        Dropdown(title, options, value, open == key, last = last, key = key, onToggle = { open = if (open == key) null else key }) { set(it); open = null }
 
     Caption("Under the song title")
     Group {
