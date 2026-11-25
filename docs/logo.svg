@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72" width="512" height="512">
+  <!-- WeTune "Cue" icon, hand-translated from res/drawable/ic_launcher_background.xml + ic_launcher_foreground.xml -->
+  <defs>
+    <clipPath id="tile"><rect x="18" y="18" width="72" height="72" rx="15.84"/></clipPath>
+    <linearGradient id="tone" gradientUnits="userSpaceOnUse" x1="54" y1="18" x2="54" y2="90">
+      <stop offset="0" stop-color="#F8F5EE"/>
+      <stop offset="1" stop-color="#E8E3D8"/>
+    </linearGradient>
+    <radialGradient id="discShadow" gradientUnits="userSpaceOnUse" cx="54" cy="56.5" r="28">
+      <stop offset="0" stop-color="#000" stop-opacity="0.110"/>
+      <stop offset="0.82" stop-color="#000" stop-opacity="0.180"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="dotShadow" gradientUnits="userSpaceOnUse" cx="70.26" cy="39.54" r="10">
+      <stop offset="0" stop-color="#000" stop-opacity="0.129"/>
+      <stop offset="0.6" stop-color="#000" stop-opacity="0.220"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect x="0" y="0" width="108" height="108" fill="url(#tone)"/>
+    <path fill="url(#discShadow)" d="M26,56.5a28,28 0,1 0,56 0a28,28 0,1 0,-56 0z"/>
+    <path fill="#141414" fill-rule="evenodd" d="M31,54a23,23 0,1 0,46 0a23,23 0,1 0,-46 0zM50,54a4,4 0,1 0,8 0a4,4 0,1 0,-8 0z"/>
+    <path fill="url(#dotShadow)" d="M60.26,39.54a10,10 0,1 0,20 0a10,10 0,1 0,-20 0z"/>
+    <path fill="#FFB020" stroke="#F3EFE6" stroke-width="2.5" d="M63.76,37.74a6.5,6.5 0,1 0,13 0a6.5,6.5 0,1 0,-13 0z"/>
+  </g>
+</svg>
