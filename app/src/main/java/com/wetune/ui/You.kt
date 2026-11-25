@@ -283,8 +283,11 @@ private fun About() {
     Spacer(Modifier.height(16.dp))
     Group {
         GroupRow("Version", value = version, chevron = false)
-        GroupRow("Source code", last = true) {
+        GroupRow("Star on GitHub") {
             ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/thewecas-dev/WeTune")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        GroupRow("Instagram", value = "@thewecas", last = true) {
+            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/thewecas/")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
     Note("Plays YouTube Music with your account, synced both ways. Not affiliated with Google or YouTube.")
