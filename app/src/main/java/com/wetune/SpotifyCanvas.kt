@@ -6,7 +6,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -41,12 +40,13 @@ object SpotifyCanvas {
     /** The Spotify track for [t]: searched by title and artist, kept only if it's the same recording (title, artist, length). */
     private fun trackId(t: Track): String? {
         val q = SourceMatch.queries(t.title, t.artist).first()
-        val res = api("https://api.spotify.com/v1/search?type=track&limit=8&q=" + URLEncoder.encode(q, "UTF-8"))
-        val items = res.optJSONObject("tracks")?.optJSONArray("items") ?: return null
+        val items = search(q).optJSONObject("data")?.optJSONObject("searchV2")?.optJSONObject("tracksV2")?.optJSONArray("items") ?: return null
         for (i in 0 until items.length()) {
-            val it = items.optJSONObject(i) ?: continue
-            val artists = it.optJSONArray("artists")?.let { a -> (0 until a.length()).joinToString(", ") { j -> a.optJSONObject(j)?.optString("name").orEmpty() } }.orEmpty()
-            val candidate = Track("spotify", it.optString("id"), it.optString("name"), artists, durationMs = it.optLong("duration_ms"))
+            val it = items.optJSONObject(i)?.optJSONObject("item")?.optJSONObject("data") ?: continue
+            val a = it.optJSONObject("artists")?.optJSONArray("items")
+            val artists = if (a == null) "" else (0 until a.length()).joinToString(", ") { j -> a.optJSONObject(j)?.optJSONObject("profile")?.optString("name").orEmpty() }
+            val ms = it.optJSONObject("duration")?.optLong("totalMilliseconds") ?: 0L
+            val candidate = Track("spotify", it.optString("id"), it.optString("name"), artists, durationMs = ms)
             if (SourceMatch.same(t.title, t.artist, t.durationMs, candidate)) return candidate.ref
         }
         return null
@@ -67,11 +67,23 @@ object SpotifyCanvas {
         }
     }
 
-    private fun api(url: String): JSONObject {
-        val req = Request.Builder().url(url).header("Authorization", "Bearer ${token()}").build()
+    /**
+     * The web player's own track search. The public one (api.spotify.com/v1/search) answers 429 to web player keys
+     * nearly every time. shortcut: the query hash is copied from the web player's xpui-routes-search chunk and Spotify
+     * rotates it; when search starts failing, take the current "searchTracks" hash from open.spotify.com's JS.
+     */
+    private fun search(q: String): JSONObject {
+        val vars = JSONObject().put("searchTerm", q).put("offset", 0).put("limit", 8).put("numberOfTopResults", 8)
+            .put("includeAudiobooks", false).put("includePreReleases", false).put("includeAuthors", false)
+        val body = JSONObject().put("variables", vars).put("operationName", "searchTracks").put("extensions",
+            JSONObject().put("persistedQuery", JSONObject().put("version", 1).put("sha256Hash", SEARCH_TRACKS_HASH)))
+        val req = Request.Builder().url("https://api-partner.spotify.com/pathfinder/v2/query")
+            .header("Authorization", "Bearer ${token()}").header("App-Platform", "WebPlayer").header("User-Agent", UA)
+            .post(body.toString().toRequestBody("application/json;charset=UTF-8".toMediaType())).build()
         http.newCall(req).execute().use { r ->
             if (r.code == 401) { token = null; error("Spotify refused the key") }
-            if (!r.isSuccessful) error("Spotify search answered ${r.code}")
+            if (r.code == 412) error("Spotify search hash is out of date: update SEARCH_TRACKS_HASH")
+            if (!r.isSuccessful) error("Spotify search answered ${r.code} (retry after ${r.header("Retry-After")} s)")
             return JSONObject(r.body?.string().orEmpty())
         }
     }
@@ -145,5 +157,6 @@ object SpotifyCanvas {
 
     fun signOut() { Settings.spotifyDc = ""; token = null; found.clear() }
 
-    private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    private const val SEARCH_TRACKS_HASH = "b02683192a98dde7966b5e6655a79eeb62713eab703eda9902c932818dd52751"
+    private const val UA ="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 }
