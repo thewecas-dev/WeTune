@@ -245,7 +245,8 @@ private fun SongPages(s: Section) {
         LazyRow(state = row, flingBehavior = rememberSnapFlingBehavior(row)) {
             items(pages.size, key = { it }) { p ->
                 Column(Modifier.width(pageW)) {
-                    pages[p].forEachIndexed { j, t -> TrackRow(t) { Playback.play(s.tracks, p * 4 + j, from = "Home" to s.title) } }
+                    // swipe off: a sideways slide here pages the shelf
+                    pages[p].forEachIndexed { j, t -> TrackRow(t, swipe = false) { Playback.play(s.tracks, p * 4 + j, from = "Home" to s.title) } }
                 }
             }
         }

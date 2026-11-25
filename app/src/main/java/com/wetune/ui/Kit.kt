@@ -33,6 +33,13 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import kotlinx.coroutines.launch
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -176,11 +183,79 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, onMore: (() -> U
     }
 }
 
-/** A song row: 48dp art, title, artist; the playing one shows a small waveform instead of the title colour change. */
+/**
+ * A song row: 48dp art, title, artist; the playing one shows a small waveform instead of the title colour change.
+ * [swipe]: slide right to add it to the queue, left to play it next (off in rows that sit in a sideways-scrolling shelf).
+ */
 @Composable
-fun TrackRow(t: Track, modifier: Modifier = Modifier, index: Int? = null, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
+fun TrackRow(t: Track, modifier: Modifier = Modifier, index: Int? = null, swipe: Boolean = true, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
     val c = WT.c
     val current = Playback.current?.id == t.id
+    val dx = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val reach = with(androidx.compose.ui.platform.LocalDensity.current) { 88.dp.toPx() } // how far a slide must go to count
+    Box(modifier.fillMaxWidth().height(58.dp)) {
+        if (swipe) {
+            // behind the row, only as wide as it has slid: the action, filled in once letting go would do it
+            SwipeAction(Icons.Queue, "Queue", Alignment.CenterStart, { dx.value }, reach)
+            SwipeAction(Icons.PlayNext, "Play next", Alignment.CenterEnd, { -dx.value }, reach)
+        }
+        TrackRowContent(t, current, index, trailing, onClick, Modifier.graphicsLayer { translationX = dx.value }.then(
+            if (!swipe) Modifier else Modifier.pointerInput(t.id) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        val v = dx.value
+                        if (v >= reach) Playback.enqueue(t) else if (v <= -reach) Playback.playNext(t)
+                        scope.launch { dx.animateTo(0f, Motion.small()) }
+                    },
+                    onDragCancel = { scope.launch { dx.animateTo(0f, Motion.small()) } },
+                ) { ch, d ->
+                    ch.consume()
+                    val before = dx.value
+                    // past the threshold it drags with resistance, and stops at 1.5× it
+                    val next = (before + if (kotlin.math.abs(before) > reach) d * 0.35f else d).coerceIn(-reach * 1.5f, reach * 1.5f)
+                    scope.launch { dx.snapTo(next) }
+                    if ((kotlin.math.abs(before) < reach) != (kotlin.math.abs(next) < reach)) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                }
+            },
+        ))
+    }
+}
+
+/**
+ * What a slide on a song row does, revealed behind it from [align]'s edge as far as [amount] px, on the Like button's
+ * chip fill; once ≥ [reach] (letting go would do it) its icon and label go from dim to full strength and the icon grows.
+ */
+@Composable
+internal fun androidx.compose.foundation.layout.BoxScope.SwipeAction(ic: Ic, label: String, align: Alignment, amount: () -> Float, reach: Float) {
+    val c = WT.c
+    val on by remember { androidx.compose.runtime.derivedStateOf { amount() >= reach } }
+    val armed by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, Motion.small(), label = "swipe")
+    Box(
+        Modifier.align(align).fillMaxHeight().padding(vertical = 5.dp)
+            .layout { m, cs ->
+                val w = amount().coerceAtLeast(0f).toInt()
+                val p = m.measure(Constraints.fixed(w, cs.maxHeight))
+                layout(w, cs.maxHeight) { p.place(0, 0) }
+            }
+            .drawBehind { drawRoundRect(c.chip, cornerRadius = CornerRadius(12.dp.toPx())) }
+            .graphicsLayer { clip = true; shape = RoundedCornerShape(12.dp) },
+        contentAlignment = if (align == Alignment.CenterStart) Alignment.CenterStart else Alignment.CenterEnd,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 18.dp).graphicsLayer { alpha = (amount() / reach).coerceIn(0f, 1f) * (0.5f + 0.5f * armed) },
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(Modifier.graphicsLayer { val s = 1f + 0.15f * armed; scaleX = s; scaleY = s }) { Icon(ic, c.on, 18.dp) }
+            Txt(label, Type.sub, color = c.on)
+        }
+    }
+}
+
+@Composable
+private fun TrackRowContent(t: Track, current: Boolean, index: Int?, trailing: (@Composable () -> Unit)?, onClick: () -> Unit, modifier: Modifier) {
+    val c = WT.c
     Row(
         modifier.fillMaxWidth().height(58.dp).press(onLongClick = { TrackMenu.show(t) }, scale = 0.985f, onClick = onClick).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
