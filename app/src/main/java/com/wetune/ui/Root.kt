@@ -44,6 +44,9 @@ fun Root() = WeTheme {
     val haze = remember { HazeState() }
     val pages = rememberSaveableStateHolder()
     NowPlaying.scope = androidx.compose.runtime.rememberCoroutineScope()
+    // the moving cover is kept while Now Playing is closed, until the song changes or the queue is cleared
+    val songId = com.wetune.Playback.current?.id
+    androidx.compose.runtime.LaunchedEffect(songId) { com.wetune.ui.player.keepVideoCoverFor(songId) }
     // status / navigation bar icons follow the app's theme (not the phone's): dark icons on light, light on dark
     val view = androidx.compose.ui.platform.LocalView.current
     androidx.compose.runtime.SideEffect {

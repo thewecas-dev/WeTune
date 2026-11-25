@@ -406,18 +406,65 @@ private fun Edge(art: String?) {
 
 
 /**
+ * The moving cover's player, kept while Now Playing is closed so reopening shows the video at once (no new lookup, no
+ * new buffering). Let go when the song changes or is cleared ([keepVideoCoverFor]).
+ */
+private object HeldVideo {
+    var id: String? = null; private var url: String? = null
+    var player: androidx.media3.exoplayer.ExoPlayer? = null; private set
+    var aspect by mutableFloatStateOf(0f) // width / height, once the video says
+    var shown by androidx.compose.runtime.mutableStateOf(false) // its first frame has been drawn
+
+    fun take(ctx: android.content.Context, id: String, u: String): androidx.media3.exoplayer.ExoPlayer {
+        player?.let { if (this.id == id && url == u) return it }
+        release()
+        this.id = id; url = u
+        return androidx.media3.exoplayer.ExoPlayer.Builder(ctx.applicationContext).build().apply {
+            volume = 0f
+            repeatMode = androidx.media3.common.Player.REPEAT_MODE_ONE
+            // Apple's covers are HLS streams (said so, as their addresses don't always end in .m3u8); Spotify's Canvas is a plain MP4
+            val hls = "itunes.apple.com" in u || ".m3u8" in u
+            setMediaItem(androidx.media3.common.MediaItem.Builder().setUri(u).apply { if (hls) setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8) }.build())
+            addListener(object : androidx.media3.common.Player.Listener {
+                override fun onVideoSizeChanged(v: androidx.media3.common.VideoSize) { if (v.height > 0) aspect = v.width * v.pixelWidthHeightRatio / v.height }
+                override fun onRenderedFirstFrame() { shown = true }
+            })
+            prepare()
+            player = this
+        }
+    }
+
+    /** The held video's address for song [id], when it's the one held. */
+    fun urlFor(id: String): String? = url.takeIf { this.id == id && player != null }
+
+    fun release() { player?.release(); player = null; id = null; url = null; aspect = 0f; shown = false }
+}
+
+/**
+ * The song whose moving-cover lookup has answered (with a video or without). Until it's the current song, whether that
+ * song has one is unknown: Now Playing then keeps what it showed (Immersive Canvas, the switch) instead of bouncing.
+ */
+var videoCheckedFor by androidx.compose.runtime.mutableStateOf<String?>(null)
+    private set
+
+/** Lets go of the held moving cover once [id] (the current song) is no longer its song; null = the queue was cleared. */
+fun keepVideoCoverFor(id: String?) { if (HeldVideo.id != null && HeldVideo.id != id) HeldVideo.release() }
+
+/**
  * A moving cover in place of the artwork (source: [animatedCoverUrl]): muted, looping,
  * cropped to the cover's own frame and shape (the caller clips), fading in over the artwork at its first frame. Nothing
  * on mobile data when Settings.npVideoWifiOnly, nor when the song has no video: the artwork simply stays. Follows the
- * music (paused with it) and is released as soon as it leaves the screen.
+ * music (paused with it); kept, paused, while Now Playing is closed ([HeldVideo]).
  */
 @Composable
-fun VideoCover(t: Track, modifier: Modifier = Modifier) {
+fun VideoCover(t: Track, modifier: Modifier = Modifier, active: Boolean = true) {
     val ctx = LocalContext.current
     val wifiOnly = Settings.npVideoWifiOnly
     // per song: (song id, its video or null). Keyed by the id, so a song change never shows (or offers the switch for) the
-    // previous song's video while the new one is looked up: produceState keeps its last value across key changes
-    val found by produceState<Pair<String, String?>?>(null, t.id, wifiOnly) {
+    // previous song's video while the new one is looked up: produceState keeps its last value across key changes.
+    // Starts from the held video when it's this song's (Now Playing reopened).
+    val found by produceState<Pair<String, String?>?>(HeldVideo.urlFor(t.id)?.let { t.id to it }, t.id, wifiOnly) {
+        if (value?.first == t.id && value?.second != null && (!wifiOnly || onWifi(ctx))) return@produceState
         value = null
         value = t.id to withContext(Dispatchers.IO) {
             runCatching {
@@ -426,31 +473,19 @@ fun VideoCover(t: Track, modifier: Modifier = Modifier) {
             }.getOrNull()
         }
     }
+    if (found?.first == t.id) androidx.compose.runtime.SideEffect { videoCheckedFor = t.id }
     val u = found?.takeIf { it.first == t.id }?.second ?: return
     androidx.compose.runtime.SideEffect { NowPlaying.videoFor = t.id } // offers the Cover / Video switch for this song
     val on = NowPlaying.videoOn
-    val player = remember(u) {
-        androidx.media3.exoplayer.ExoPlayer.Builder(ctx).build().apply {
-            volume = 0f
-            repeatMode = androidx.media3.common.Player.REPEAT_MODE_ONE
-            // Apple's covers are HLS streams (said so, as their addresses don't always end in .m3u8); Spotify's Canvas is a plain MP4
-            val hls = "itunes.apple.com" in u || ".m3u8" in u
-            setMediaItem(androidx.media3.common.MediaItem.Builder().setUri(u).apply { if (hls) setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8) }.build())
-            prepare()
-        }
-    }
-    var aspect by remember(u) { mutableFloatStateOf(0f) } // width / height, once the video says
-    var shown by remember(u) { androidx.compose.runtime.mutableStateOf(false) }
-    DisposableEffect(player) {
-        val l = object : androidx.media3.common.Player.Listener {
-            override fun onVideoSizeChanged(v: androidx.media3.common.VideoSize) { if (v.height > 0) aspect = v.width * v.pixelWidthHeightRatio / v.height }
-            override fun onRenderedFirstFrame() { shown = true }
-        }
-        player.addListener(l)
-        onDispose { player.removeListener(l); player.release() }
-    }
-    LaunchedEffect(player, Playback.playing, on) { player.playWhenReady = Playback.playing && on } // paused while the artwork shows
+    val player = remember(t.id, u) { HeldVideo.take(ctx, t.id, u) }
+    val aspect = HeldVideo.aspect
+    val shown = HeldVideo.shown
+    // closing Now Playing pauses the held video; it's let go only when the song changes or is cleared
+    DisposableEffect(player) { onDispose { player.playWhenReady = false } }
+    // paused while the artwork shows, and while a panel covers it ([active])
+    LaunchedEffect(player, Playback.playing, on, active) { player.playWhenReady = Playback.playing && on && active }
     val fade by androidx.compose.animation.core.animateFloatAsState(if (shown && on) 1f else 0f, tween(Motion.GLOW), label = "video")
+    val screen = androidx.compose.ui.platform.LocalView.current
     Box(modifier.fillMaxSize().clipToBounds()) {
         androidx.compose.ui.viewinterop.AndroidView(
             factory = { android.view.TextureView(it).also(player::setVideoTextureView) },
@@ -459,9 +494,13 @@ fun VideoCover(t: Track, modifier: Modifier = Modifier) {
                     // fill the cover's frame at the video's own shape, centred (the overflow is clipped): never stretched
                     val w = cs.maxWidth; val h = cs.maxHeight
                     val a = if (aspect > 0f) aspect else 16f / 9f
-                    val (vw, vh) = if (w.toFloat() / h > a) w to (w / a).toInt() else (h * a).toInt() to h
-                    val pl = m.measure(androidx.compose.ui.unit.Constraints.fixed(vw.coerceAtLeast(1), vh.coerceAtLeast(1)))
-                    layout(w, h) { pl.place((w - vw) / 2, (h - vh) / 2) }
+                    fun fit(w: Int, h: Int) = if (w.toFloat() / h > a) w to (w / a).toInt() else (h * a).toInt() to h
+                    val (vw, vh) = fit(w, h)
+                    // the view keeps one size (enough for the whole screen) and is scaled to the frame: resizing a
+                    // TextureView reallocates its buffers, and the frame changes size every frame of Immersive Canvas
+                    val (bw, bh) = fit(maxOf(w, screen.width), maxOf(h, screen.height)).let { (x, y) -> x.coerceAtLeast(1) to y.coerceAtLeast(1) }
+                    val pl = m.measure(androidx.compose.ui.unit.Constraints.fixed(bw, bh))
+                    layout(w, h) { pl.placeWithLayer((w - bw) / 2, (h - bh) / 2) { scaleX = vw.toFloat() / bw; scaleY = vh.toFloat() / bh } }
                 }
                 .graphicsLayer { alpha = fade },
         )
