@@ -26,7 +26,7 @@ object Settings {
     var libraryLayout by Str("library_layout", "list") // list | grid (2 across) | grid3 (3 across)
     var glassTint by IntPref("glass_tint", 62) // frosted surfaces: how much tint over the blur, 0..100 %
     var glassBlur by IntPref("glass_blur", 40) // frosted surfaces: blur radius in dp, 0..60
-    var glassNoise by IntPref("glass_noise", 50) // every surface's grain, 0..100 % (50 = the original look)
+    var glassNoise by IntPref("glass_noise", 20) // every surface's grain, 0..100 % (50 = the original look)
     var bgNoise by IntPref("bg_noise", 50) // the app background's grain, 0..100 % (50 = the original look)
     var bgColor by IntPref("bg_color", 50) // how much of the app background's colour wash shows, 0..100 % (50 = the original look)
     var bgBlur by IntPref("bg_blur", 50) // the app background's colour wash: how soft and spread, 0..100 % (50 = the original look)
@@ -50,12 +50,12 @@ object Settings {
     var npGrabber by Bool("np2_grabber", true) // the drag handle at the top of Now Playing
     var npPlayingFrom by Bool("np2_playing_from", true) // "Playing from" (album, playlist, radio…) at the top of Now Playing
     var npShuffleRepeat by Bool("np2_shuffle_repeat", true) // Shuffle and Repeat beside the play controls (they stay in the queue either way)
-    var npVideoCover by Bool("np2_video_cover", false) // the song's music video plays in place of the cover (muted, looping)
+    var npVideoCover by Bool("np2_video_cover", true) // the song's music video plays in place of the cover (muted, looping)
     var npVideoWifiOnly by Bool("np2_video_wifi_only", true) // ...only on Wi-Fi (saves mobile data)
     var npImmersiveAuto by Bool("np2_immersive_auto", false) // ...going in by itself when a song has a Canvas
     var npImmersiveStyle by Str("np2_immersive_style", "capsule") // capsule (floating frosted pill) | type (title on the Canvas)
     var immersiveLyrics by IntPref("immersive_lyrics", 0) // lyric lines over the Canvas in immersive view: 0 | 1 | 3
-    var npBackground by Str("np2_background", "flow") // flow | gradient | blur | tone | … (older choices map to the nearest; see backdrop)
+    var npBackground by Str("np2_background", "gradient") // flow | gradient | blur | tone | … (older choices map to the nearest; see backdrop)
     var coverSize by IntPref("np2_cover_size", 80) // % of the screen width, 55..120 (past 100 bleeds off the edges)
     var coverRadius by IntPref("np2_cover_radius", 10) // % of half the cover: 0 sharp .. 100 circle
     // each corner on its own (top left, top right, bottom right, bottom left; same % as coverRadius) instead of coverRadius
@@ -74,14 +74,14 @@ object Settings {
     // height as % of its shape's (or of the space, for Fill the space), and where it sits like coverPlace (COVER_AUTO = the top)
     var edgeSize by IntPref("np2_edge_size", 100)
     var edgePlace by IntPref("np2_edge_place", COVER_AUTO)
-    var coverAspect by Str("np2_cover_aspect", "1:1") // 1:1 | 4:5 | 3:4 | 9:16 | 16:9 | device (the phone screen's shape) | original (the artwork's own shape, uncropped)
-    var coverStyle by Str("np2_cover_style", "plain") // plain | squircle | glow | tilt | polaroid | stack | disc | record | cue | edge (see CoverStyles)
+    var coverAspect by Str("np2_cover_aspect", "9:16") // 1:1 | 4:5 | 3:4 | 9:16 | 16:9 | device (the phone screen's shape) | original (the artwork's own shape, uncropped)
+    var coverStyle by Str("np2_cover_style", "edge") // plain | squircle | glow | tilt | polaroid | stack | disc | record | cue | edge (see CoverStyles)
     var sheetRadius by IntPref("np2_sheet_radius", -1) // controls sheet corners in dp, 0..48; -1 = match the screen's own corners
     var npCard by Bool("np2_card", true) // a frosted card behind the Now Playing controls
-    var npCardInset by IntPref("np2_card_inset", 8) // dp from the screen edges, 0..24
-    var npCardTint by Str("np2_card_tint", "auto") // auto (frosted, as the navbar) | black | white | accent | dominant | neutral (cover tones)
-    var npCardStrength by IntPref("np2_card_strength", 70) // tint strength for the non-frosted tints, 0..100 %
-    var npCardBlur by IntPref("np2_card_blur", 40) // dp, 0 (no blur)..80
+    var npCardInset by IntPref("np2_card_inset", 15) // dp from the screen edges, 0..24
+    var npCardTint by Str("np2_card_tint", "black") // auto (frosted, as the navbar) | black | white | accent | dominant | neutral (cover tones)
+    var npCardStrength by IntPref("np2_card_strength", 10) // tint strength for the non-frosted tints, 0..100 %
+    var npCardBlur by IntPref("np2_card_blur", 25) // dp, 0 (no blur)..80
     var npCardShadow by Bool("np2_card_shadow", true) // the logo's depth under the one Now Playing surface (mini player, card, capsule)
     var npCardShadowStrength by IntPref("np2_card_shadow_strength", 50) // 10..100
     var inlineLyrics by IntPref("np2_inline_lyrics", 1) // lines of lyrics in the normal sheet: 0 (off) | 1 | 3

@@ -375,7 +375,7 @@ fun GlassSettingsBody() {
     Group {
         SliderRow("Tint", Settings.glassTint, 0..100, { when (it) { 0 -> "Clear"; 100 -> "Solid"; else -> "$it %" } }, key = "glass_tint") { Settings.glassTint = it }
         SliderRow("Blur", Settings.glassBlur, 0..60, { if (it == 0) "None" else "$it dp" }, key = "glass_blur") { Settings.glassBlur = it }
-        SliderRow("Noise", Settings.glassNoise, 0..100, { if (it == 0) "None" else "$it %" }, last = true, key = "glass_noise", mark = 50) { Settings.glassNoise = it }
+        SliderRow("Noise", Settings.glassNoise, 0..100, { if (it == 0) "None" else "$it %" }, last = true, key = "glass_noise") { Settings.glassNoise = it }
     }
     Note("Every card, sheet, button, menu, the navbar and the mini player (not Now Playing, which has its own). Tint is how much colour sits over them; less shows more of what's behind. Blur softens what moves behind the navbar, the mini player, menus and the round buttons. Noise is their fine grain.")
     Caption("Background")
