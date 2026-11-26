@@ -73,7 +73,6 @@ import com.wetune.ui.depth
 import com.wetune.ui.Icon
 import com.wetune.ui.Icons
 import com.wetune.ui.MaterialIcons
-import com.wetune.ui.Outfit
 import com.wetune.ui.Txt
 import com.wetune.ui.Type
 import com.wetune.ui.WT
@@ -88,9 +87,9 @@ import kotlin.math.sin
  */
 val material: Boolean get() = Settings.playerStyle == "material"
 
-/** Apple-like text style, or its Material (Outfit) counterpart. */
+/** Apple-like text style, or its Material counterpart (its own size and weight, the same font as Clean). */
 fun pt(apple: TextStyle, matSize: Int, matWeight: Int): TextStyle =
-    if (material) type(matSize.sp, matWeight, family = Outfit, tracking = 0.sp) else apple
+    if (material) type(matSize.sp, matWeight, tracking = 0.sp) else apple
 
 fun fmt(ms: Long): String { val s = (ms / 1000).coerceAtLeast(0); return "%d:%02d".format(s / 60, s % 60) }
 
@@ -141,15 +140,17 @@ fun SeekBar(badge: Boolean, modifier: Modifier = Modifier, previewFrac: Float? =
     val c = WT.c
     val pos = rememberPosition()
     var scrub by remember { mutableStateOf<Float?>(null) }
-    val fracState = remember { derivedStateOf { previewFrac ?: scrub ?: Playback.knownDuration.let { d -> if (d > 0) (pos.value.toFloat() / d).coerceIn(0f, 1f) else 0f } } }
-    val frac by fracState
+    // the position moves every frame: only the draw phase reads fracState; composition reads whole seconds
+    val fracState = remember(previewFrac) { derivedStateOf { previewFrac ?: scrub ?: Playback.knownDuration.let { d -> if (d > 0) (pos.value.toFloat() / d).coerceIn(0f, 1f) else 0f } } }
+    val shownMs by remember(fracState) { derivedStateOf { (fracState.value * Playback.knownDuration).toLong() / 1000 * 1000 } } // recompose once a second
+    val d = Playback.knownDuration
     val mat = material
     Column(modifier) {
         BoxWithConstraints(
             Modifier.fillMaxWidth().height(24.dp)
                 .semantics {
                     contentDescription = "Song position"
-                    progressBarRangeInfo = ProgressBarRangeInfo(frac, 0f..1f)
+                    progressBarRangeInfo = ProgressBarRangeInfo(if (d > 0) (shownMs.toFloat() / d).coerceIn(0f, 1f) else 0f, 0f..1f)
                     setProgress { v -> Playback.seek((v * Playback.duration()).toLong()); true }
                 }
                 .pointerInput(Unit) {
@@ -185,8 +186,6 @@ fun SeekBar(badge: Boolean, modifier: Modifier = Modifier, previewFrac: Float? =
             }
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            val d = Playback.duration()
-            val shownMs by remember { derivedStateOf { (frac * Playback.knownDuration).toLong() / 1000 * 1000 } } // recompose once a second
             val cap = pt(Type.caption, 12, 500).copy(fontFeatureSettings = "tnum")
             Txt(fmt(shownMs), cap, color = c.onSecondary)
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {

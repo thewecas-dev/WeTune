@@ -91,11 +91,11 @@ fun NowPlayingSettingsBody() {
 
     Caption("Cover")
     Group {
-        val edge = backdrop == "edge"
-        if (!edge) drop("Style", "np2_cover_style", CoverStyles, coverStyle) { Settings.coverStyle = it }
-        drop("Shape", "np2_cover_aspect", Aspects, Settings.coverAspect, last = false) { Settings.coverAspect = it }
+        val edge = coverStyle == "edge"
+        drop("Style", "np2_cover_style", CoverStyles, coverStyle) { Settings.coverStyle = it }
+        if (coverStyle != "cue") drop("Shape", "np2_cover_aspect", Aspects, Settings.coverAspect, last = false) { Settings.coverAspect = it }
         // the moving cover (Spotify Canvas or Apple Music's animated album art), apart from the backgrounds; any cover style, full width too
-        SwitchRow("Animated cover", Settings.npVideoCover, last = edge && !Settings.npVideoCover) { Settings.npVideoCover = it }
+        SwitchRow("Animated cover", Settings.npVideoCover) { Settings.npVideoCover = it }
         if (Settings.npVideoCover) {
             SwitchRow("Only on Wi-Fi", Settings.npVideoWifiOnly) { Settings.npVideoWifiOnly = it }
             // immersive view (the Canvas full screen over compact controls): tapping a playing Canvas always goes in and
@@ -105,7 +105,7 @@ fun NowPlayingSettingsBody() {
             drop("Immersive style", "np2_immersive_style", listOf("capsule" to "Floating capsule", "type" to "Title on the Canvas"), Settings.npImmersiveStyle) { Settings.npImmersiveStyle = it }
             // Spotify Canvas needs the user's Spotify login; without it, Apple Music's animated album covers are used
             val spotify = Settings.spotifyDc.isNotBlank()
-            GroupRow("Spotify Canvas", value = if (spotify) "Signed in" else "Sign in", chevron = !spotify, last = edge) {
+            GroupRow("Spotify Canvas", value = if (spotify) "Signed in" else "Sign in", chevron = !spotify) {
                 if (!spotify) com.wetune.ui.Nav.open(com.wetune.ui.Route.SpotifyLogin)
                 else com.wetune.ui.Sheet.show {
                     com.wetune.ui.SheetTitle("Spotify Canvas")
@@ -113,25 +113,38 @@ fun NowPlayingSettingsBody() {
                 }
             }
         }
-        if (!edge) {
+        if (edge) {
+            // full width: always edge to edge, so Size is its height (% of its shape's, or of the space for Fill the space)
+            // and Position where it sits, from the top (its default, the notch) to touching the bottom edge
+            SliderRow("Size", Settings.edgeSize, 55..120, { "$it %" }, key = "np2_edge_size") { Settings.edgeSize = it }
+            SliderRow(
+                "Position", if (Settings.edgePlace == COVER_AUTO) 0 else Settings.edgePlace, 0..100,
+                { when (it) { 0 -> "At the top"; 50 -> "Middle"; 100 -> "At the bottom"; else -> "$it %" } }, mark = 0, last = true,
+                onReset = { Settings.edgePlace = COVER_AUTO },
+            ) { Settings.edgePlace = it }
+        } else {
             // "Fill the space" takes all the room above the controls: no size or position to set
-            if (Settings.coverAspect != "fill") SliderRow("Size", Settings.coverSize, 55..120, { "$it %" }, key = "np2_cover_size") { Settings.coverSize = it }
+            val sized = Settings.coverAspect != "fill" || coverStyle == "cue" // the WeTune mark keeps its own (round) shape
+            if (sized) SliderRow("Size", Settings.coverSize, 55..120, { "$it %" }, key = "np2_cover_size") { Settings.coverSize = it }
             // from touching the top edge (0 %) to touching the bottom edge (100 %); never moved = the default spot,
             // measured from the real player and marked by the notch
             val auto = NowPlaying.coverAutoPos.coerceIn(0, 100)
-            if (Settings.coverAspect != "fill") SliderRow(
+            if (sized) SliderRow(
                 "Position", if (Settings.coverPlace == COVER_AUTO) auto else Settings.coverPlace, 0..100,
                 { when (it) { 0 -> "At the top"; 50 -> "Middle"; 100 -> "At the bottom"; else -> "$it %" } }, mark = auto,
                 onReset = { Settings.coverPlace = COVER_AUTO }, // double-tap: back to the real default spot, not its %
             ) { Settings.coverPlace = it }
             val corner = { v: Int -> when (v) { 0 -> "Square"; 100 -> "Round"; else -> "$v %" } }
             val split = Settings.coverCornersSplit
-            SwitchRow("Shape each corner", split) { on ->
+            // Disc (round), Polaroid (a print) and the WeTune mark have their own fixed outline: corners would do nothing there
+            val fixed = coverStyle == "disc" || coverStyle == "polaroid" || coverStyle == "cue"
+            if (!fixed) SwitchRow("Shape each corner", split) { on ->
                 // start the four from the current shared value, so switching never jumps
                 if (on) Settings.coverRadius.let { Settings.coverCornerTL = it; Settings.coverCornerTR = it; Settings.coverCornerBR = it; Settings.coverCornerBL = it }
                 Settings.coverCornersSplit = on
             }
-            if (!split) SliderRow("Corners", Settings.coverRadius, 0..100, corner, key = "np2_cover_radius") { Settings.coverRadius = it }
+            if (fixed) Unit // no corner sliders
+            else if (!split) SliderRow("Corners", Settings.coverRadius, 0..100, corner, key = "np2_cover_radius") { Settings.coverRadius = it }
             else {
                 SliderRow("Top left", Settings.coverCornerTL, 0..100, corner, key = "np2_cover_corner_tl") { Settings.coverCornerTL = it }
                 SliderRow("Top right", Settings.coverCornerTR, 0..100, corner, key = "np2_cover_corner_tr") { Settings.coverCornerTR = it }
@@ -142,7 +155,7 @@ fun NowPlayingSettingsBody() {
             if (Settings.coverShadow) SliderRow("Shadow strength", Settings.coverShadowStrength, 10..100, { "$it %" }, last = true, key = "np2_cover_shadow_strength") { Settings.coverShadowStrength = it }
         }
     }
-    if (backdrop == "edge") Note("A full-width cover sits at the top, edge to edge.")
+    if (coverStyle == "edge") Note("A full-width cover sits at the top, edge to edge, fading into the background.")
 
     Caption("Controls card")
     Group {
@@ -358,12 +371,20 @@ internal fun snapValue(raw: Float, range: IntRange, mark: Int?, unitPx: Float, m
 /** Settings › General › Glass: how frosted surfaces look across the app (navbar, mini player, menus, cards). */
 @Composable
 fun GlassSettingsBody() {
-    Caption("Glass")
+    Caption("Surfaces")
     Group {
         SliderRow("Tint", Settings.glassTint, 0..100, { when (it) { 0 -> "Clear"; 100 -> "Solid"; else -> "$it %" } }, key = "glass_tint") { Settings.glassTint = it }
-        SliderRow("Blur", Settings.glassBlur, 0..60, { if (it == 0) "None" else "$it dp" }, last = true, key = "glass_blur") { Settings.glassBlur = it }
+        SliderRow("Blur", Settings.glassBlur, 0..60, { if (it == 0) "None" else "$it dp" }, key = "glass_blur") { Settings.glassBlur = it }
+        SliderRow("Noise", Settings.glassNoise, 0..100, { if (it == 0) "None" else "$it %" }, last = true, key = "glass_noise", mark = 50) { Settings.glassNoise = it }
     }
-    Note("Tint is how much colour sits over the blur; less shows more of what's behind. Blur applies to the navbar, the mini player and menus.")
+    Note("Every card, sheet, button, menu, the navbar and the mini player (not Now Playing, which has its own). Tint is how much colour sits over them; less shows more of what's behind. Blur softens what moves behind the navbar, the mini player, menus and the round buttons. Noise is their fine grain.")
+    Caption("Background")
+    Group {
+        SliderRow("Colour", Settings.bgColor, 0..100, { if (it == 0) "None" else "$it %" }, key = "bg_color") { Settings.bgColor = it }
+        SliderRow("Noise", Settings.bgNoise, 0..100, { if (it == 0) "None" else "$it %" }, key = "bg_noise") { Settings.bgNoise = it }
+        SliderRow("Blur", Settings.bgBlur, 0..100, { "$it %" }, last = true, key = "bg_blur") { Settings.bgBlur = it }
+    }
+    Note("The soft colour wash at the top of every page and its grain. Colour is how strong the wash is, Blur spreads it wider and softer.")
 }
 
 /**

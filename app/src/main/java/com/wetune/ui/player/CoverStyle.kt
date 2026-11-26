@@ -32,6 +32,8 @@ import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -61,16 +63,14 @@ import kotlin.math.min
 
 val CoverStyles = listOf(
     "plain" to "Plain", "squircle" to "Squircle", "glow" to "Glow", "tilt" to "Tilt",
-    "polaroid" to "Polaroid", "stack" to "Stack", "disc" to "Disc", "record" to "Sleeve and record",
+    "polaroid" to "Polaroid", "stack" to "Stack", "disc" to "Disc", "record" to "Sleeve and record", "cue" to "WeTune mark", "edge" to "Full width",
 )
 
-/** The cover style in use: the Full-width cover background is the cover itself, so it stays plain. */
-val coverStyle: String get() =
-    if (backdrop == "edge") "plain"
-    else Settings.coverStyle.takeIf { s -> CoverStyles.any { it.first == s } } ?: "plain"
+/** The cover style in use. "edge" (Full width): the cover edge to edge at the very top, fading into the background. */
+val coverStyle: String get() = Settings.coverStyle.takeIf { s -> CoverStyles.any { it.first == s } } ?: "plain"
 
 /** Styles drawn inside the cover's own rounded rect: the cover layer clips and shadows them itself. */
-fun coverClips(style: String) = style == "plain" || style == "squircle"
+fun coverClips(style: String) = style == "plain" || style == "squircle" || style == "edge"
 
 /** The cover's outline for [style]: continuous (smoothed) corners for Squircle, plain rounded corners otherwise. */
 fun Corners.shapeFor(style: String): Shape = if (style == "squircle") squircle(this) else shape()
@@ -88,6 +88,7 @@ fun StyledCover(t: Track, style: String, corners: Corners, art: @Composable () -
         "stack" -> Stack(corners, art)
         "disc" -> Disc(t, art)
         "record" -> Record(t, corners, art)
+        "cue" -> Cue(t)
         else -> art()
     }
 }
@@ -106,9 +107,9 @@ private fun spin(ms: Int, on: Boolean): State<Float> =
 private fun videoShowing(t: Track) = Settings.npVideoCover && NowPlaying.videoOn && NowPlaying.videoFor == t.id
 
 /**
- * Glow: the cover floats on a soft copy of itself (blur 36, 1.6× saturation), a little lower, breathing over 8 s. The
- * copy sits in a box 30 % larger on every side so its blur can spread past the cover's edges (a blur is cut off at its
- * own layer's bounds, which left a sharp rectangle).
+ * Glow: the cover floats on a soft copy of itself (blur 36, 1.6× saturation) in its own shape, centred so the glow spreads
+ * evenly on every side, breathing over 8 s. The copy sits in a box 30 % larger on every side so its blur can spread past
+ * the cover's edges (a blur is cut off at its own layer's bounds, which left a sharp rectangle).
  */
 @Composable
 private fun Glow(t: Track, corners: Corners, art: @Composable () -> Unit) {
@@ -118,12 +119,10 @@ private fun Glow(t: Track, corners: Corners, art: @Composable () -> Unit) {
     val breath = sway(8_000, rest = 1f)
     BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val pad = min(maxWidth.value, maxHeight.value).dp * 0.3f
-        val coverH = maxHeight
         Box(
             Modifier.requiredSize(maxWidth + pad * 2, maxHeight + pad * 2).graphicsLayer {
                 val b = breath.value
-                translationY = coverH.toPx() * (0.05f + 0.01f * b)
-                scaleX = 1.02f + 0.04f * b; scaleY = scaleX
+                scaleX = 1.04f + 0.04f * b; scaleY = scaleX
                 alpha = 0.7f + 0.3f * b
             }.then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(36.dp, BlurredEdgeTreatment.Unbounded) else Modifier).padding(pad),
         ) { AsyncImage(img, null, Modifier.fillMaxSize().clip(corners.shape()), contentScale = ContentScale.Crop, colorFilter = sat) }
@@ -179,19 +178,29 @@ private fun Polaroid(t: Track, art: @Composable () -> Unit) {
 @Composable
 private fun Stack(corners: Corners, art: @Composable () -> Unit) {
     val q = Playback.queue; val i = Playback.index
+    StackedCovers(q.getOrNull(i - 1)?.art, q.getOrNull(i + 1)?.art, corners.shape(), art = art)
+}
+
+/**
+ * Stack's drawing, also the playlist pages' art: [left] and [right] fanned out behind [art]. [fan] 0..1 is how far they
+ * have come out from behind it (1 = resting; read in draw only); [shadow] the front cover's shadow.
+ */
+@Composable
+fun StackedCovers(left: String?, right: String?, shape: Shape, fan: () -> Float = { 1f }, shadow: androidx.compose.ui.unit.Dp = 18.dp, art: @Composable () -> Unit) {
     val dim = remember { ColorFilter.tint(Color.Black.copy(alpha = 0.5f), BlendMode.SrcAtop) }
     Box(Modifier.fillMaxSize()) {
-        listOf(q.getOrNull(i - 1) to -1f, q.getOrNull(i + 1) to 1f).forEach { (song, side) ->
-            if (song != null) AsyncImage(
-                song.art, null, contentScale = ContentScale.Crop, colorFilter = dim,
+        listOf(left to -1f, right to 1f).forEach { (a, side) ->
+            if (a != null) AsyncImage(
+                a, null, contentScale = ContentScale.Crop, colorFilter = dim,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
+                    val f = fan()
                     scaleX = 0.88f; scaleY = 0.88f
-                    translationX = side * size.width * 0.16f; rotationZ = side * 7f
-                    shape = corners.shape(); clip = true
+                    translationX = side * size.width * 0.16f * f; rotationZ = side * 7f * f
+                    this.shape = shape; clip = true
                 },
             )
         }
-        Box(Modifier.fillMaxSize().shadow(18.dp, corners.shape(), ambientColor = Color.Black, spotColor = Color.Black).clip(corners.shape())) { art() }
+        Box(Modifier.fillMaxSize().shadow(shadow, shape, ambientColor = Color.Black, spotColor = Color.Black).clip(shape)) { art() }
     }
 }
 
@@ -244,8 +253,49 @@ private fun Record(t: Track, corners: Corners, art: @Composable () -> Unit) {
             AsyncImage(t.art, null, Modifier.size(disc * 0.38f).clip(CircleShape), contentScale = ContentScale.Crop)
             Box(Modifier.size(disc * 0.03f).background(Color(0xFF0A0A0C), CircleShape))
         }
-        val sleeveShape = RoundedCornerShape(min(corners.tl, 8f))
+        val sleeveShape = corners.scale(sw.value / maxWidth.value).shape() // the cover's corners, at the sleeve's size
         Box(Modifier.size(sleeveSize).shadow(14.dp, sleeveShape, ambientColor = Color.Black, spotColor = Color.Black).clip(sleeveShape)) { art() }
+    }
+}
+
+/**
+ * WeTune mark: the app's logo itself as the cover ("Cue", res/drawable/ic_launcher_background + _foreground): the cream
+ * tile's gentle top-to-bottom tone, the record with its centre punched through to the tile, the logo's own soft
+ * fall-off shadows, and the playhead dot with its cream ring, the dot in the song's vivid tone (easing over to the next
+ * song's). Round like the app's badge (Home's AppMark), as big as fits the cover's space. The mark breathes (1↔1.03×,
+ * 6 s each way) while music plays and holds still otherwise; only drawing reads the motion.
+ */
+@Composable
+private fun Cue(t: Track) {
+    val dot = androidx.compose.animation.animateColorAsState(vivid(coverColors(t.art), Color(0xFFFFB020), 0f), tween(com.wetune.ui.Motion.GLOW), label = "dot")
+    val breath = sway(6_000, rest = 0f)
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val d = min(maxWidth.value, maxHeight.value).dp
+        Box(Modifier.size(d).clip(CircleShape).drawWithCache {
+            // the tile shows 72 of its 108 units (18..90): logo units → px
+            val k = size.minDimension / 72f
+            fun at(x: Float, y: Float) = Offset((x - 18f) * k, (y - 18f) * k)
+            val tile = androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xFFF8F5EE), Color(0xFFE8E3D8)))
+            val record = androidx.compose.ui.graphics.Path().apply {
+                fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
+                addOval(androidx.compose.ui.geometry.Rect(at(54f, 54f), 23f * k))
+                addOval(androidx.compose.ui.geometry.Rect(at(54f, 54f), 4f * k))
+            }
+            fun shade(c: Offset, r: Float, a: Color, b: Color, mid: Float) =
+                androidx.compose.ui.graphics.Brush.radialGradient(0f to a, mid to b, 1f to Color.Transparent, center = c, radius = r)
+            val recordShade = shade(at(54f, 56.5f), 28f * k, Color(0x1C000000), Color(0x2E000000), 0.82f)
+            val dotShade = shade(at(70.26f, 39.54f), 10f * k, Color(0x21000000), Color(0x38000000), 0.6f)
+            onDrawBehind {
+                drawRect(tile)
+                scale(1f + 0.03f * breath.value, pivot = at(54f, 54f)) {
+                    drawCircle(recordShade, 28f * k, at(54f, 56.5f))
+                    drawPath(record, Color(0xFF141414))
+                    drawCircle(dotShade, 10f * k, at(70.26f, 39.54f))
+                    drawCircle(dot.value, 6.5f * k, at(70.26f, 37.74f))
+                    drawCircle(Color(0xFFF3EFE6), 6.5f * k, at(70.26f, 37.74f), style = Stroke(2.5f * k))
+                }
+            }
+        })
     }
 }
 

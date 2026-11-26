@@ -134,6 +134,11 @@ private class Geo {
     var card by mutableStateOf(androidx.compose.ui.unit.IntOffset.Zero) // the card's top-left, to line its blurred copy up with the screen
     var screen by mutableStateOf(androidx.compose.ui.unit.IntSize.Zero)
     var slotH by mutableStateOf(0f) // the mini player's height (px), for the card's round ends at rest
+    // Full width cover: how far the background slides down (px), to the top of the cover's fade, so a background's own top (where most
+    // put their colour) shows below the cover instead of under it; 0 = the whole screen
+    var backTop by androidx.compose.runtime.mutableIntStateOf(0)
+    var art by mutableStateOf<String?>(null) // the big cover's artwork last drawn (null: none drew)
+    var artKey: coil3.memory.MemoryCache.Key? = null // its image in Coil's memory cache: the next song's placeholder
     // where the surface is: k = 0 open … 1 the mini player; ivc = into the immersive capsule; small = the title's small look.
     // Written by the layout each frame, read by the shared nodes in their own layout / draw
     var k by androidx.compose.runtime.mutableFloatStateOf(1f); var ivc by androidx.compose.runtime.mutableFloatStateOf(0f); var small by androidx.compose.runtime.mutableFloatStateOf(1f)
@@ -195,12 +200,17 @@ private tailrec fun Context.activity(): Activity? = when (this) {
 /**
  * The cover's rect and corner radius in the normal state, from the user's size / radius / offset settings, centred
  * between the screen's top edge and the controls card's top ([bottom]) or as the user set it from the centre of [h], cropped to the chosen shape ([art] = the artwork's
- * own width / height, for "original"). "edge" backdrop: edge to edge at the very top.
+ * own width / height, for "original"). "edge" (Full width) cover style: edge to edge at the very top.
  */
 fun Density.normalCover(w: Int, h: Int, bottom: Int, art: Float = 1f): Pair<Rect, Corners> {
-    val ratio = coverAspect(art) // width / height
+    val ratio = if (coverStyle == "cue") 1f else coverAspect(art) // width / height (the WeTune mark is round: square, whatever the shape)
     // "Fill the space" has no shape of its own: down to the controls card
-    if (backdrop == "edge") return Rect(0f, 0f, w.toFloat(), if (Settings.coverAspect == "fill") bottom.toFloat() else w / ratio) to Corners.Zero
+    if (coverStyle == "edge") {
+        val ch = (if (Settings.coverAspect == "fill") bottom.toFloat() else w / ratio) * Settings.edgeSize.coerceIn(55, 120) / 100f
+        val place = Settings.edgePlace
+        val top = if (place == COVER_AUTO || ch >= h) 0f else (h - ch) * place.coerceIn(0, 100) / 100f
+        return Rect(0f, top, w.toFloat(), top + ch) to Corners.Zero
+    }
     fun corners(cw: Float, ch: Float): Corners {
         val half = minOf(cw, ch) / 2f
         fun r(pct: Int) = half * pct.coerceIn(0, 100) / 100f
@@ -208,7 +218,7 @@ fun Density.normalCover(w: Int, h: Int, bottom: Int, art: Float = 1f): Pair<Rect
         else Corners.all(r(Settings.coverRadius))
     }
     // "Fill the space": edge to edge from the top of the screen down to just above the controls card
-    if (Settings.coverAspect == "fill") return Rect(0f, 0f, w.toFloat(), (bottom - 12.dp.toPx()).coerceAtLeast(1f)).let { it to corners(it.width, it.height) }
+    if (Settings.coverAspect == "fill" && coverStyle != "cue") return Rect(0f, 0f, w.toFloat(), (bottom - 12.dp.toPx()).coerceAtLeast(1f)).let { it to corners(it.width, it.height) }
     val pct = Settings.coverSize.coerceIn(55, 120) / 100f
     // 100 % = edge to edge across the screen, whatever the shape; the % scales that. Never squeezed by the controls: a big
     // cover slides under the card, which is on top.
@@ -346,6 +356,8 @@ private fun Player(t: Track, geo: Geo, appColors: com.wetune.ui.WeColors, appHaz
     )
     // one even curve both ways: the emphasized one did most of this full-screen morph in its first two frames
     val iv = animateFloatAsState(if (canImmersive && NowPlaying.immersive && !full) 1f else 0f, tween(IMMERSIVE_MS, easing = Motion.Standard), label = "immersive")
+    // Full width: the background slides below the cover only while an artwork is drawn (none: it fills the screen)
+    val artIn = animateFloatAsState(if (geo.art != null) 1f else 0f, tween(Motion.GLOW), label = "art")
     val autoIn = Settings.npImmersiveAuto
     LaunchedEffect(canImmersive && videoKnown && visible, t.id, autoIn) {
         // the auto option: in whenever the song turns out to have a Canvas (while Now Playing shows, or as it opens),
@@ -367,7 +379,7 @@ private fun Player(t: Track, geo: Geo, appColors: com.wetune.ui.WeColors, appHaz
     // a drag moves the sheet exactly with the finger: progress runs over the sheet's full height (it slides by that much)
     val dragPx = androidx.compose.ui.platform.LocalView.current.height.toFloat().coerceAtLeast(1f)
     val progress = NowPlaying.progress
-    val edge = backdrop == "edge"
+    val edge = coverStyle == "edge"
     val artRatio = if (visible) coverRatio(t.art) else 1f
     // the controls card (Settings › Now Playing › Controls card): blur, with its tint drawn as a plain fill so the
     // card shows even where the blur doesn't
@@ -490,7 +502,16 @@ private fun Player(t: Track, geo: Geo, appColors: com.wetune.ui.WeColors, appHaz
                         }
                     },
                 ) {
-                    Backdrop(t)
+                    // slid down (not resized: no re-layout) below a full-width cover, only while an artwork is drawn; back in place
+                    // as a full-screen panel hides the cover. Wherever the cover leaves the gap above open (a sideways swipe, a
+                    // panel, a cover placed lower), the background's own top row stretches up over it
+                    Box(Modifier.drawWithContent {
+                        val top = geo.backTop * (1f - f.value) * artIn.value
+                        translate(top = top) { this@drawWithContent.drawContent() }
+                        if (top > 0f && (coverSwipe.value != 0f || f.value > 0f || artIn.value < 1f || geo.base.top > 0f)) clipRect(bottom = top) {
+                            scale(1f, top + 1f, pivot = androidx.compose.ui.geometry.Offset.Zero) { this@drawWithContent.drawContent() }
+                        }
+                    }) { Backdrop(t) }
                     // its own layer under the controls: sized and placed only by the cover settings, free to slide under the
                     // card. Reports the screen's size so a cover wider than the screen (>100 %) is never re-centred.
                     Box(Modifier.layout { m, cs ->
@@ -516,7 +537,15 @@ private fun Player(t: Track, geo: Geo, appColors: com.wetune.ui.WeColors, appHaz
                         StyledCover(t, coverStyle, geo.baseRadius) {
                             // the usual artwork, with the full-size one laid over it once it arrives (no blank moment)
                             Box(Modifier.fillMaxSize()) {
-                                AsyncImage(t.art, "Album artwork: ${t.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                // the last artwork drawn stays until a new song's has decoded (it's the request's placeholder,
+                                // straight from the memory cache): a song changed by the buttons or by ending never shows an
+                                // empty slot. One image node: a second one, added at the change, itself loaded empty first
+                                val ctx = androidx.compose.ui.platform.LocalContext.current
+                                val req = remember(t.art) { coil3.request.ImageRequest.Builder(ctx).data(t.art).placeholderMemoryCacheKey(geo.artKey).build() }
+                                AsyncImage(
+                                    req, "Album artwork: ${t.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                                    onSuccess = { geo.art = t.art; geo.artKey = it.result.memoryCacheKey }, onError = { geo.art = null; geo.artKey = null },
+                                )
                                 AsyncImage(hiResArt(t.art), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                                 if (Settings.npVideoCover) VideoCover(t, active = !full) // over the artwork; paused under a panel
                             }
@@ -765,6 +794,7 @@ private fun Player(t: Track, geo: Geo, appColors: com.wetune.ui.WeColors, appHaz
             // immersive view: the cover grows to the whole screen, square-cornered
             geo.base = lerpRect(normal, Rect(0f, 0f, w.toFloat(), h.toFloat()), ivv)
             geo.baseRadius = normalRadius.lerp(Corners.Zero, ivv)
+            geo.backTop = if (edge && backdrop != "tone") (normal.top + normal.height * EDGE_FADE_FROM).roundToInt() else 0
             val back = ms[0].measure(Constraints.fixed(w, h)) // after geo, so the cover lays out at this frame's rect
             val switch = ms[12].measure(Constraints())
             val switchA = (1f - ev) * (1f - fv) * (1f - ivv)
@@ -1026,11 +1056,14 @@ private fun smooth(t: Float) = t * t * (3f - 2f * t)
 /** [v] (0..1) as it passes [from]..[to], 0..1: lets what leaves and what arrives take turns instead of overlapping. */
 private fun span(v: Float, from: Float, to: Float) = ((v - from) / (to - from)).coerceIn(0f, 1f)
 
-/** "edge" backdrop: the cover's lower part dissolves into the background colour below it ([amount] 0 = no fade). */
+/** "edge" (Full width) cover style: the cover's lower part dissolves into the background colour below it ([amount] 0 = no fade). */
+/** Where the full-width cover starts fading, as a share of its height. */
+private const val EDGE_FADE_FROM = 0.55f
+
 internal fun Modifier.edgeFade(amount: () -> Float): Modifier = graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithCache {
         val k = amount()
-        val fade = Brush.verticalGradient(0.55f to Color.Black, 1f to Color.Black.copy(alpha = 1f - k))
+        val fade = Brush.verticalGradient(EDGE_FADE_FROM to Color.Black, 1f to Color.Black.copy(alpha = 1f - k))
         onDrawWithContent { drawContent(); if (k > 0f) drawRect(fade, blendMode = BlendMode.DstIn) }
     }
 
@@ -1045,6 +1078,7 @@ private fun ctlAlpha(p: Float) = ((p - 0.7f) / 0.3f).coerceIn(0f, 1f)
 data class Corners(val tl: Float, val tr: Float, val br: Float, val bl: Float) {
     fun lerp(to: Corners, t: Float) = Corners(lerp(tl, to.tl, t), lerp(tr, to.tr, t), lerp(br, to.br, t), lerp(bl, to.bl, t))
     fun shape() = RoundedCornerShape(tl, tr, br, bl)
+    fun scale(k: Float) = Corners(tl * k, tr * k, br * k, bl * k)
     companion object {
         val Zero = Corners(0f, 0f, 0f, 0f)
         fun all(r: Float) = Corners(r, r, r, r)

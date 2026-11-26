@@ -64,7 +64,7 @@ private fun variable(res: Int) = FontFamily(
     }
 )
 
-/** Apple-like everywhere; Outfit only inside Now Playing's Material style. */
+/** Inter everywhere; Outfit for a few Home headings. */
 val Inter = variable(R.font.inter)
 val Outfit = variable(R.font.outfit)
 

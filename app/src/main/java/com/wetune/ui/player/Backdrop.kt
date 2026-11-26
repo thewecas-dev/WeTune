@@ -76,7 +76,7 @@ import kotlin.math.sin
 
 /** Backdrop styles, in the order the picker lists them: value to label. Four, each clearly its own kind of picture. */
 val Backdrops = listOf(
-    "flow" to "Colour flow", "gradient" to "Gradient", "blur" to "Blurred art", "edge" to "Full-width cover",
+    "flow" to "Colour flow", "gradient" to "Gradient", "blur" to "Blurred art", "tone" to "Edge colour",
     "halo" to "Halo", "aurora" to "Aurora", "film" to "Film", "spot" to "Spotlight", "sweep" to "Sweep",
 )
 
@@ -84,7 +84,7 @@ val Backdrops = listOf(
 val backdrop: String get() = when (val s = Settings.npBackground) {
     "glow", "mesh" -> "flow"
     "frost", "blurdark", "stripes", "video" -> "blur"
-    "flow", "gradient", "blur", "edge", "halo", "aurora", "film", "spot", "sweep" -> s
+    "flow", "gradient", "blur", "tone", "halo", "aurora", "film", "spot", "sweep" -> s
     else -> "flow"
 }
 
@@ -104,7 +104,7 @@ fun Backdrop(t: Track, style: String = backdrop, live: Boolean = true) {
             "flow" -> Flow(art, live)
             "gradient" -> Gradient(art)
             "blur" -> BlurredArt(art)
-            "edge" -> Edge(art)
+            "tone" -> Edge(art)
             "halo" -> Halo(art, live)
             "aurora" -> Aurora(art, live)
             "film" -> Film(art)
@@ -203,7 +203,7 @@ private fun small(art: String?, px: Int): ImageRequest {
 private fun saturation(s: Float) = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(s) })
 
 /** The cover's most colourful corner (the "vivid" tone), darkened by [dark] (0..1). */
-private fun vivid(cs: List<Color>?, fallback: Color, dark: Float): Color {
+internal fun vivid(cs: List<Color>?, fallback: Color, dark: Float): Color {
     val best = cs?.take(4)?.maxByOrNull { c -> val hsv = FloatArray(3); android.graphics.Color.colorToHSV(c.toArgb(), hsv); hsv[1] * hsv[2] } ?: return fallback
     return lerp(best, Color.Black, dark)
 }
@@ -308,19 +308,25 @@ private fun Aurora(art: String?, live: Boolean) {
     val v = vivid(cs, bg, 0f)
     val q = cs?.take(4) ?: List(4) { v }
     val ribbons = listOf(Triple(0.04f to 0.22f, q[0] to v, swing(live, 60_000)), Triple(0.17f to 0.20f, v to q[1], swing(live, 80_000)), Triple(0.30f to 0.18f, q[3] to q[0], swing(live, 100_000)))
-    Box(Modifier.fillMaxSize().drawBehind { drawRect(Brush.verticalGradient(0f to dim(v, 0.14f), 0.7f to Color.Black, 1f to Color.Black)) }) {
+    BoxWithConstraints(Modifier.fillMaxSize().clipToBounds().drawBehind { drawRect(Brush.verticalGradient(0f to dim(v, 0.14f), 0.7f to Color.Black, 1f to Color.Black)) }, contentAlignment = Alignment.Center) {
+        // the blurred layer is cut at its own bounds: a screen-sized one, turned −14°, showed as a tilted rectangle. It
+        // reaches a quarter of the screen's long side past every edge, so its bounds (and their blur) stay off screen
+        val m = maxOf(maxWidth, maxHeight) * 0.25f
         Box(
-            Modifier.fillMaxSize().graphicsLayer { rotationZ = -14f }
+            Modifier.requiredSize(maxWidth + m * 2, maxHeight + m * 2).graphicsLayer { rotationZ = -14f }
                 .then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(26.dp, BlurredEdgeTreatment.Unbounded) else Modifier)
                 .drawBehind {
-                    for ((place, cols, slide) in ribbons) {
-                        val (top, h) = place; val (a, b) = cols
-                        val w = size.width * 2.2f
-                        val x = -size.width * 0.6f + (slide.value - 0.5f) * 2f * 0.16f * w
-                        drawOval(
-                            Brush.horizontalGradient(0.1f to Color.Transparent, 0.38f to a.copy(alpha = 0.75f), 0.62f to b.copy(alpha = 0.6f), 0.9f to Color.Transparent, startX = x, endX = x + w),
-                            topLeft = Offset(x, size.height * top), size = androidx.compose.ui.geometry.Size(w, size.height * h),
-                        )
+                    val sw = size.width - m.toPx() * 2; val sh = size.height - m.toPx() * 2 // the screen, inside the margin
+                    translate(m.toPx(), m.toPx()) {
+                        for ((place, cols, slide) in ribbons) {
+                            val (top, h) = place; val (a, b) = cols
+                            val w = sw * 2.2f
+                            val x = -sw * 0.6f + (slide.value - 0.5f) * 2f * 0.16f * w
+                            drawOval(
+                                Brush.horizontalGradient(0.1f to Color.Transparent, 0.38f to a.copy(alpha = 0.75f), 0.62f to b.copy(alpha = 0.6f), 0.9f to Color.Transparent, startX = x, endX = x + w),
+                                topLeft = Offset(x, sh * top), size = androidx.compose.ui.geometry.Size(w, sh * h),
+                            )
+                        }
                     }
                 },
         )
@@ -392,7 +398,7 @@ private fun richer(c: Color): Color {
     return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
-/** Apple Music style: the colour along the cover's bottom edge fills the screen (the cover itself fades into it). */
+/** Edge colour (Apple Music style): the colour along the cover's bottom edge fills the screen (a full-width cover fades into it). */
 @Composable
 private fun Edge(art: String?) {
     val bg = WT.c.bg
