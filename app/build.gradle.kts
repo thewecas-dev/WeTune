@@ -15,8 +15,8 @@ android {
         applicationId = "com.wetune"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.1.0"
+        versionCode = 11
+        versionName = "1.2.0"
     }
     // release key lives outside the project (~/.wetune); its path and password are in local.properties (not committed)
     signingConfigs {
@@ -25,7 +25,11 @@ android {
             storePassword = releaseProps.getProperty("release.password"); keyAlias = "wetune"; keyPassword = releaseProps.getProperty("release.password")
         }
     }
-    buildTypes { release { signingConfig = signingConfigs.getByName("release") } }
+    buildTypes {
+        release { signingConfig = signingConfigs.getByName("release") }
+        // release code (not debuggable, so it runs compiled) signed with the debug key: installs over a debug build to measure jank
+        create("perf") { initWith(getByName("release")); signingConfig = signingConfigs.getByName("debug"); matchingFallbacks += "release" }
+    }
     buildFeatures { compose = true }
     compileOptions {
         isCoreLibraryDesugaringEnabled = true // NewPipeExtractor uses Java 11+ APIs
