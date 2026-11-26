@@ -54,6 +54,10 @@ fun thumbnail(node: Any?): String? {
     return if (big.startsWith("//")) "https:$big" else big
 }
 
+/** A page header's totals made short: "14 songs • 56 minutes" → "14 songs · 56 min", "1 hour, 22 minutes" → "1 h 22 min". */
+fun shortTotals(s: String): String =
+    s.split(" • ").joinToString(" · ").replace(Regex(" hours?,?"), " h").replace(Regex(" minutes?"), " min")
+
 fun parseDuration(s: String): Long = s.split(':').fold(0L) { acc, p -> acc * 60 + (p.toLongOrNull() ?: 0) } * 1000
 
 private fun pageType(run: JSONObject) = run.obj(
@@ -105,8 +109,27 @@ fun parseRow(r: JSONObject): Any? {
         "yt", videoId, title, artistOf(rest, segs), albumOf(rest), art,
         duration?.let(::parseDuration) ?: 0,
         r.obj("playlistItemData")?.optString("playlistSetVideoId").nonEmpty(),
+        segs.firstOrNull { it.endsWith(" views", ignoreCase = true) }.orEmpty(),
     )
 }
+
+/** An unfiltered search's Top result card: a [Track] (song or video) or a [Card] (album, artist, playlist); null when there's none. */
+fun topResult(root: Any?): Any? {
+    val c = findFirst(root, "musicCardShelfRenderer") as? JSONObject ?: return null
+    val title = c.optJSONObject("title").runs().firstOrNull() ?: return null
+    val sub = c.optJSONObject("subtitle").runs()
+    val segs = segments(sub)
+    val art = thumbnail(c.optJSONObject("thumbnail"))
+    title.obj("navigationEndpoint", "watchEndpoint")?.optString("videoId").nonEmpty()?.let {
+        val duration = segs.firstOrNull { s -> DURATION.matches(s) }?.let(::parseDuration) ?: 0
+        return Track("yt", it, title.optString("text"), artistOf(sub, segs), albumOf(sub), art, duration, views = segs.firstOrNull { s -> s.endsWith(" views") }.orEmpty())
+    }
+    return title.obj("navigationEndpoint", "browseEndpoint")?.optString("browseId").nonEmpty()?.let { Card(it, title.optString("text"), segs.joinToString(" • "), art) }
+}
+
+/** The query YouTube searched instead when it fixed the spelling ("Showing results for …"), or null. */
+fun correctedQuery(root: Any?): String? =
+    (findFirst(root, "showingResultsForRenderer") as? JSONObject)?.obj("correctedQueryEndpoint", "searchEndpoint")?.optString("query").nonEmpty()
 
 fun parseCard(c: JSONObject): Any? {
     val title = c.optJSONObject("title").text().nonEmpty() ?: return null
@@ -142,13 +165,16 @@ fun items(node: Any?, keys: Set<String> = setOf(ROW, CARD, PANEL)): Items {
     return Items(parsed.filterIsInstance<Track>().distinctBy { it.id }, parsed.filterIsInstance<Card>().distinctBy { it.browseId })
 }
 
-data class Section(val title: String, val tracks: List<Track>, val cards: List<Card>)
+/** A shelf of a feed. [strap]: the small line YouTube sets above some titles ("SIMILAR TO"); [wide]: 16:9 items (music videos). */
+data class Section(val title: String, val tracks: List<Track>, val cards: List<Card>, val strap: String = "", val wide: Boolean = false)
 
 fun sections(root: Any?): List<Section> = findAll(root, setOf(CAROUSEL, SHELF)).mapNotNull { (_, s) ->
     val title = (s.optJSONObject("header")?.let { findFirst(it, "title") } as? JSONObject).text()
         .ifEmpty { s.optJSONObject("title").text() }
     val it = items(s.optJSONArray("contents"))
-    if (it.tracks.isEmpty() && it.cards.isEmpty()) null else Section(title, it.tracks, it.cards)
+    val strap = (s.optJSONObject("header")?.let { findFirst(it, "strapline") } as? JSONObject).text()
+    val wide = findFirst(s.optJSONArray("contents"), "aspectRatio") == "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_RECTANGLE_16_9"
+    if (it.tracks.isEmpty() && it.cards.isEmpty()) null else Section(title, it.tracks, it.cards, strap, wide)
 }
 
 fun continuation(node: Any?): String? =
@@ -174,5 +200,51 @@ fun homeChips(root: Any?): List<YouTube.Chip> = findAll(root, setOf("chipCloudCh
     c.optJSONObject("text").text().takeIf { it.isNotBlank() }?.let { YouTube.Chip(it, p) }
 }.distinctBy { it.title }.filterNot { it.title.equals("Podcasts", ignoreCase = true) } // a music app: no podcast feed
 
-/** The same artwork at full size (1200 px) for big displays like Now Playing; lists keep the lighter default. */
-fun hiRes(url: String?): String? = url?.replace(Regex("=w[0-9]+-h[0-9]+"), "=w1200-h1200")
+/** Explore's mood & genre buttons ("Chill", "Bhojpuri"…), each with the params of its playlists page. */
+fun moodButtons(root: Any?): List<YouTube.Chip> = findAll(root, setOf("musicNavigationButtonRenderer")).mapNotNull { (_, b) ->
+    val e = b.obj("clickCommand", "browseEndpoint")?.takeIf { it.optString("browseId") == "FEmusic_moods_and_genres_category" } ?: return@mapNotNull null
+    val p = e.optString("params").nonEmpty() ?: return@mapNotNull null
+    b.optJSONObject("buttonText").text().nonEmpty()?.let { YouTube.Chip(it, p) }
+}.distinctBy { it.title }
+
+/**
+ * The same artwork at full size for big displays like Now Playing; lists keep the lighter default. Covers: 1200 px.
+ * A video's frame (i.ytimg.com): the largest size, maxresdefault (1280×720); [ArtFallback] steps down when it's missing.
+ */
+fun hiRes(url: String?): String? {
+    url ?: return null
+    YTIMG.find(url)?.let { return frame(it.groupValues[1], YT_SIZES[0]) }
+    return url.replace(Regex("=w[0-9]+-h[0-9]+"), "=w1200-h1200")
+}
+
+/** A video's thumbnail (16:9 frame) rather than a song's square cover. */
+fun isVideoArt(url: String?) = url != null && YTIMG.containsMatchIn(url)
+
+// any ytimg host / webp variant of a frame; the sizes are fetched as plain public jpgs
+private val YTIMG = Regex("""^https?://i\d?\.ytimg\.com/vi(?:_webp)?/([^/]+)/([a-z0-9_]+)\.(?:jpg|webp)""")
+private fun frame(id: String, size: String) = "https://i.ytimg.com/vi/$id/$size.jpg"
+// best first: hq720 (1280×720, no bars) before sddefault (640×480 with bars)
+private val YT_SIZES = listOf("maxresdefault", "hq720", "sddefault", "hqdefault")
+
+/** The next smaller frame after [url]'s ytimg size, or null (not a ytimg frame, or already the smallest we try). */
+fun smallerYtimg(url: String): String? {
+    val m = YTIMG.find(url) ?: return null
+    val i = YT_SIZES.indexOf(m.groupValues[2])
+    return if (i < 0 || i == YT_SIZES.lastIndex) null else frame(m.groupValues[1], YT_SIZES[i + 1])
+}
+
+/** Not every video has every frame size: a missing one (404) loads the next size down; misses are remembered. */
+object ArtFallback : coil3.intercept.Interceptor {
+    private val missing = java.util.Collections.synchronizedSet(HashSet<String>())
+    override suspend fun intercept(chain: coil3.intercept.Interceptor.Chain): coil3.request.ImageResult {
+        var url = chain.request.data as? String ?: return chain.proceed()
+        while (url in missing) url = smallerYtimg(url) ?: break
+        var result = chain.withRequest(chain.request.newBuilder().data(url).build()).proceed()
+        while (result is coil3.request.ErrorResult) {
+            val next = smallerYtimg(url) ?: break
+            missing += url; url = next
+            result = chain.withRequest(chain.request.newBuilder().data(url).build()).proceed()
+        }
+        return result
+    }
+}
