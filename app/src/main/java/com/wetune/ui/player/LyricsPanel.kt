@@ -43,9 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -141,8 +139,7 @@ private fun Lines(t: Track, v: List<Lyrics.Version>, big: Boolean, style: TextSt
 }
 
 /**
- * The sung line filling word by word, smoothly, from a position advanced every frame between the player's 250 ms
- * updates. Drawn twice, dim and bright, with the bright copy revealed by a clip that sweeps along the line: colouring
+ * The sung line filling word by word, smoothly, from the position advanced every frame ([rememberPosition]). Drawn twice, dim and bright, with the bright copy revealed by a clip that sweeps along the line: colouring
  * single letters would split syllables (a Hindi vowel sign drawn alone shows as a dotted circle). Only the draw phase
  * reads the position, so the fill never recomposes.
  * shortcut: the sweep runs left to right; right-to-left scripts fill in the wrong direction (they show plain lines today).
@@ -150,14 +147,7 @@ private fun Lines(t: Track, v: List<Lyrics.Version>, big: Boolean, style: TextSt
 @Composable
 internal fun Karaoke(words: List<Lyrics.Word>, id: String, style: TextStyle, modifier: Modifier = Modifier, lines: Int = Int.MAX_VALUE) {
     val c = WT.c
-    val pos = rememberPosition()
-    val now = produceState(pos.value, Playback.playing) {
-        var base = pos.value; var at = System.nanoTime()
-        while (true) withFrameNanos { f ->
-            if (pos.value != base) { base = pos.value; at = f }
-            value = base + if (Playback.playing) ((f - at) / 1_000_000).coerceIn(0, 500) else 0
-        }
-    }
+    val now = rememberPosition() // already advanced every frame
     val text = remember(words) { words.joinToString("") { it.text } }
     val starts = remember(words) { words.runningFold(0) { acc, w -> acc + w.text.length } }
     var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }

@@ -21,7 +21,9 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import com.wetune.sources.Track
-import kotlinx.coroutines.delay
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -128,11 +130,15 @@ object Playback {
     private fun sync(p: Player, full: Boolean) {
         if (full) queue = (0 until p.mediaItemCount).mapNotNull { p.getMediaItemAt(it).track() }
         index = p.currentMediaItemIndex
-        current = p.currentMediaItem?.track()
+        val now = p.currentMediaItem?.track()
+        if (now != null && now.id != current?.id) Settings.addRecent(now) // Search's "Recently played"
+        current = now
         playing = p.isPlaying
         shuffle = p.shuffleModeEnabled
         repeat = p.repeatMode
         buffering = p.playbackState == Player.STATE_BUFFERING
+        duration().let { if (it != knownDuration) knownDuration = it }
+        anchor(p) // play / pause / seek / skip / speed all arrive here: the clock snaps or stops at once
         if (sleepEndsAt != 0L && System.currentTimeMillis() > sleepEndsAt) sleepEndsAt = 0L
     }
 
@@ -210,6 +216,19 @@ object Playback {
     }
 
     fun position(): Long = c?.currentPosition ?: 0
+
+    /** Where the song was at a moment, advanced every frame by [rememberPosition] (the player reports it only now and then). */
+    var clock by mutableStateOf(PlayClock(0, 0, false, 1f, 0)); private set
+
+    private fun anchor(p: Player) {
+        clock = PlayClock(p.currentPosition, System.nanoTime() / 1_000_000, p.isPlaying, p.playbackParameters.speed, duration())
+    }
+
+    /** The slow check against the player: re-anchors only if the clock drifted, so the bar never twitches. */
+    fun resync() {
+        val p = c ?: return
+        if (kotlin.math.abs(clock.at(System.nanoTime() / 1_000_000) - p.currentPosition) > 120) anchor(p)
+    }
     // the player's own once known (C.TIME_UNSET before that), else the length the song came with
     fun duration(): Long = c?.duration?.takeIf { it > 0 } ?: current?.durationMs?.takeIf { it > 0 } ?: 0
 
@@ -240,11 +259,28 @@ object Playback {
     }
 }
 
+/** [pos] ms at [atMs] (a monotonic ms clock), moving at [speed] while [playing], kept within 0..[duration] (0 = unknown). */
+data class PlayClock(val pos: Long, val atMs: Long, val playing: Boolean, val speed: Float, val duration: Long) {
+    fun at(nowMs: Long): Long {
+        val p = if (playing) pos + ((nowMs - atMs).coerceAtLeast(0) * speed).toLong() else pos
+        return (if (duration > 0) p.coerceAtMost(duration) else p).coerceAtLeast(0)
+    }
+}
+
+/**
+ * The song's position, advanced every display frame from [Playback.clock] while playing (smooth, instead of stepping
+ * 4×/s as when it was polled), still while paused (no frames run). Read it in the draw phase so only drawing repeats.
+ */
 @Composable
-fun rememberPosition(): State<Long> = produceState(0L) {
+fun rememberPosition(): State<Long> = produceState(Playback.clock.at(System.nanoTime() / 1_000_000)) {
+    var synced = 0L
     while (true) {
-        value = Playback.position()
-        Playback.duration().let { if (it != Playback.knownDuration) Playback.knownDuration = it }
-        delay(250)
+        val k = Playback.clock
+        if (!k.playing) { value = k.at(0); snapshotFlow { Playback.clock }.first { it != k }; continue }
+        withFrameNanos { f ->
+            val now = f / 1_000_000 // frame time: the same clock as System.nanoTime, evenly spaced at the display's rate
+            value = Playback.clock.at(now)
+            if (now - synced > 1000) { synced = now; Playback.resync() }
+        }
     }
 }
