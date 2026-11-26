@@ -2,6 +2,8 @@ package com.wetune
 
 import android.content.Context
 import androidx.compose.runtime.mutableStateOf
+import com.wetune.sources.Card
+import com.wetune.sources.Track
 import org.json.JSONObject
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -24,6 +26,10 @@ object Settings {
     var libraryLayout by Str("library_layout", "list") // list | grid (2 across) | grid3 (3 across)
     var glassTint by IntPref("glass_tint", 62) // frosted surfaces: how much tint over the blur, 0..100 %
     var glassBlur by IntPref("glass_blur", 40) // frosted surfaces: blur radius in dp, 0..60
+    var glassNoise by IntPref("glass_noise", 50) // every surface's grain, 0..100 % (50 = the original look)
+    var bgNoise by IntPref("bg_noise", 50) // the app background's grain, 0..100 % (50 = the original look)
+    var bgColor by IntPref("bg_color", 50) // how much of the app background's colour wash shows, 0..100 % (50 = the original look)
+    var bgBlur by IntPref("bg_blur", 50) // the app background's colour wash: how soft and spread, 0..100 % (50 = the original look)
     var textScale by IntPref("text_scale", 100) // app text size, % of the system font size
     var startTab by Str("start_tab", "home") // the tab WeTune opens on: home | library
     var lyricsRoman by Bool("lyrics_roman", false) // show a Latin-letter reading under each lyric line
@@ -49,7 +55,7 @@ object Settings {
     var npImmersiveAuto by Bool("np2_immersive_auto", false) // ...going in by itself when a song has a Canvas
     var npImmersiveStyle by Str("np2_immersive_style", "capsule") // capsule (floating frosted pill) | type (title on the Canvas)
     var immersiveLyrics by IntPref("immersive_lyrics", 0) // lyric lines over the Canvas in immersive view: 0 | 1 | 3
-    var npBackground by Str("np2_background", "flow") // flow | gradient | blur | edge (older choices map to the nearest; see backdrop)
+    var npBackground by Str("np2_background", "flow") // flow | gradient | blur | tone | … (older choices map to the nearest; see backdrop)
     var coverSize by IntPref("np2_cover_size", 80) // % of the screen width, 55..120 (past 100 bleeds off the edges)
     var coverRadius by IntPref("np2_cover_radius", 10) // % of half the cover: 0 sharp .. 100 circle
     // each corner on its own (top left, top right, bottom right, bottom left; same % as coverRadius) instead of coverRadius
@@ -64,8 +70,12 @@ object Settings {
     // bottom edge. COVER_AUTO = halfway between the top of the screen and the controls card. (np2_cover_pos was dp from
     // the centre, left behind.)
     var coverPlace by IntPref("np2_cover_place", COVER_AUTO)
+    // the Full width cover's own size and place (its own keys: the boxed cover's values would move it on update): its
+    // height as % of its shape's (or of the space, for Fill the space), and where it sits like coverPlace (COVER_AUTO = the top)
+    var edgeSize by IntPref("np2_edge_size", 100)
+    var edgePlace by IntPref("np2_edge_place", COVER_AUTO)
     var coverAspect by Str("np2_cover_aspect", "1:1") // 1:1 | 4:5 | 3:4 | 9:16 | 16:9 | device (the phone screen's shape) | original (the artwork's own shape, uncropped)
-    var coverStyle by Str("np2_cover_style", "plain") // plain | squircle | glow | tilt | polaroid | stack | disc | record (see CoverStyles)
+    var coverStyle by Str("np2_cover_style", "plain") // plain | squircle | glow | tilt | polaroid | stack | disc | record | cue | edge (see CoverStyles)
     var sheetRadius by IntPref("np2_sheet_radius", -1) // controls sheet corners in dp, 0..48; -1 = match the screen's own corners
     var npCard by Bool("np2_card", true) // a frosted card behind the Now Playing controls
     var npCardInset by IntPref("np2_card_inset", 8) // dp from the screen edges, 0..24
@@ -98,16 +108,30 @@ object Settings {
     var sendHistory by Bool("send_history", true) // report plays to YouTube Music (history and recommendations)
     var autoRotate by Bool("auto_rotate", false)
     var recentSearches by Str("recent_searches", "") // newline-separated, newest first
+    var recentItems by Str("recent_items", "") // songs played and albums / playlists / artists opened, one recentJson per line, newest first
+    var searchPicks by Str("search_picks", "") // the same, but only what was played or opened from Search's results (videos too)
 
     fun addRecentSearch(q: String) {
-        recentSearches = (listOf(q) + recentSearches.lines().filter { it.isNotBlank() && !it.equals(q, ignoreCase = true) }).take(10).joinToString("\n")
+        recentSearches = pushRecent(recentSearches.lines().filter { it.isNotBlank() }, q, 6) { it.lowercase() }.joinToString("\n")
     }
+
+    /** [searchPicks] read back: [Track]s, [Video]s and [Card]s. */
+    fun picks(): List<Any> = searchPicks.lines().mapNotNull(::recentOf)
+
+    fun addPick(x: Any) { searchPicks = pushRecent(picks(), x, 20, ::recentKey).joinToString("\n", transform = ::recentJson) }
+
+    fun removeRecentSearch(q: String) { recentSearches = recentSearches.lines().filter { it.isNotBlank() && it != q }.joinToString("\n") }
+
+    /** [recentItems] read back: [Track]s and [Card]s. */
+    fun recents(): List<Any> = recentItems.lines().mapNotNull(::recentOf)
+
+    fun addRecent(x: Any) { recentItems = pushRecent(recents(), x, 20, ::recentKey).joinToString("\n", transform = ::recentJson) }
 
     /** The value [key] has when the user never changed it (null for an unknown key). */
     fun defaultOf(key: String): Any? = all[key]?.default
 
     // never written to a settings file: sign-in secrets and what's playing / was searched
-    private val PRIVATE = setOf("cookie", "subsonic_pass", "spotify_dc", "radio_seed", "last_from", "recent_searches", "cache_v2")
+    private val PRIVATE = setOf("cookie", "subsonic_pass", "spotify_dc", "radio_seed", "last_from", "recent_searches", "recent_items", "search_picks", "cache_v2")
 
     /** Every setting the user changed (incl. the Now Playing style), minus sign-in secrets and passing state, as JSON. */
     fun exportJson(): String = settingsJson(all.keys.filter { it !in PRIVATE && prefs.contains(it) }.associateWith { prefs.all[it] })
@@ -119,7 +143,14 @@ object Settings {
         values.forEach { (k, v) -> when (v) { is String -> e.putString(k, v); is Boolean -> e.putBoolean(k, v); is Int -> e.putInt(k, v) } }
         e.apply()
         values.keys.forEach { all[it]?.reload() }
+        migrate()
         return values.size
+    }
+
+    /** Brings settings saved by older versions up to date (at start, and after a settings file is applied). */
+    fun migrate() {
+        val (b, s) = fullWidthMigration(npBackground, coverStyle)
+        if (b != npBackground) { npBackground = b; coverStyle = s }
     }
 
     private abstract class Pref(val key: String, val kind: Char) {
@@ -158,6 +189,33 @@ object Settings {
         }
     }
 }
+
+/** [x] first, then [list] without any earlier entry with the same [key], at most [cap] long. */
+fun <T> pushRecent(list: List<T>, x: T, cap: Int, key: (T) -> Any): List<T> = (listOf(x) + list.filter { key(it) != key(x) }).take(cap)
+
+/** A music video picked from Search: a [Track] that lists and plays as a video (16:9 frame). */
+data class Video(val track: Track)
+
+fun recentKey(x: Any): Any = when (x) { is Track -> x.id; is Video -> x.track.id; is Card -> x.browseId; else -> x }
+
+/** A recent song or album / playlist / artist as one line of JSON; [recentOf] reads it back (null if unreadable). */
+fun recentJson(x: Any): String = when (x) {
+    is Track -> JSONObject().put("t", x.toJson())
+    is Video -> JSONObject().put("v", x.track.toJson())
+    is Card -> JSONObject().put("c", JSONObject().put("b", x.browseId).put("t", x.title).put("s", x.subtitle).put("a", x.art))
+    else -> throw IllegalArgumentException("not a song or page: $x")
+}.toString()
+
+fun recentOf(line: String): Any? = runCatching {
+    val o = JSONObject(line)
+    o.optJSONObject("t")?.let(Track::fromJson)
+        ?: o.optJSONObject("v")?.let { Video(Track.fromJson(it)) }
+        ?: o.getJSONObject("c").let { Card(it.getString("b"), it.optString("t"), it.optString("s"), if (it.isNull("a")) null else it.optString("a").ifEmpty { null }) }
+}.getOrNull()
+
+/** Full-width cover was a background ("edge"); it's now a cover style ("edge") over the same cover-edge colour ("tone"). */
+fun fullWidthMigration(background: String, coverStyle: String): Pair<String, String> =
+    if (background == "edge") "tone" to "edge" else background to coverStyle
 
 /** The settings file: {"wetune_settings": 1, "values": {key: value}}. */
 fun settingsJson(values: Map<String, Any?>): String =

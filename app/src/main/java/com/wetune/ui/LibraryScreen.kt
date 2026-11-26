@@ -50,7 +50,7 @@ fun LibraryScreen() {
             item("title", "title") {
                 PageTitle("Library") {
                     Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
-                        Box(Modifier.size(36.dp).clip(CircleShape).background(c.chip).press("New playlist") { newPlaylist() }, contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(36.dp).glass(CircleShape).press("New playlist") { newPlaylist() }, contentAlignment = Alignment.Center) {
                             Icon(Icons.Plus, c.on, 18.dp)
                         }
                     }

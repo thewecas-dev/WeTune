@@ -206,7 +206,7 @@ private fun TabItem(t: Tab, on: () -> Float) {
     Layout(
         modifier = Modifier.fillMaxHeight().press(t.label, scale = 0.94f) { Nav.select(t) },
         content = {
-            Icon(t.ic, Color(0xFF8E8E93), 21.dp, Modifier.graphicsLayer { alpha = 1f - on() })
+            Icon(t.ic, if (c.dark) Color.White.copy(alpha = 0.78f) else Color(0xFF8E8E93), 21.dp, Modifier.graphicsLayer { alpha = 1f - on() })
             Icon(t.ic, c.onPrimary, 21.dp, Modifier.graphicsLayer { alpha = on() })
             Txt(t.label, Type.button.copy(fontSize = Type.tile.fontSize), Modifier.graphicsLayer { alpha = on() }, color = c.onPrimary)
         },

@@ -65,31 +65,51 @@ val LocalHaze = compositionLocalOf { HazeState() }
 
 val blurSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
+/*
+ * Surfaces: ONE style for everything outside Now Playing, from one settings group (Settings › Surfaces): Tint, Blur,
+ * Noise. Floating surfaces (dock, mini player, sheets, menus, round ‹ ⋯ buttons) use [frost]: real blur of what's
+ * behind. Surfaces that sit on the page (list sheets, cards, buttons, chips) use [glass]: the same tint and grain;
+ * nothing moves behind those, so there's nothing for a blur to show. Now Playing's card keeps its own settings.
+ */
+
 @Composable
 fun frostStyle(): HazeStyle {
     val c = WT.c
-    // Settings › General › Glass: how much of the theme's frost tint (0..100 %, 62 = the original) and how much blur;
-    // a faint grain makes it read as frosted glass rather than a plain blur
+    // how much of the theme's frost tint (0..100 %, 62 = the original), how much blur, and how much grain (it reads
+    // as frosted glass rather than a plain blur)
     val tint = com.wetune.Settings.glassTint.coerceIn(0, 100) / 100f
     val blur = com.wetune.Settings.glassBlur.coerceIn(0, 60)
-    return remember(c, tint, blur) {
-        HazeStyle(backgroundColor = c.bg, tint = HazeTint(c.frost.copy(alpha = tint)), blurRadius = blur.dp, noiseFactor = 0.06f, fallbackTint = HazeTint(c.frostSolid))
+    val noise = 0.06f * com.wetune.Settings.glassNoise.coerceIn(0, 100) / 50f
+    return remember(c, tint, blur, noise) {
+        HazeStyle(backgroundColor = c.bg, tint = HazeTint(c.frost.copy(alpha = tint)), blurRadius = blur.dp, noiseFactor = noise, fallbackTint = HazeTint(c.frostSolid))
     }
 }
 
 /**
- * Glass for cards and rows that sit on the page itself (search box, grouped lists, profile card): a translucent fill
- * that lets the page's colour wash show through, with the same fine grain as the frost. Real blur isn't used here:
- * these cards are part of the page, so nothing ever moves behind them to blur. Follows the Glass tint setting.
+ * Glass for surfaces that sit on the page itself (list sheets, search box, grouped lists, cards, buttons, chips): a
+ * translucent fill that lets the page's colour wash show through, with the same grain as the frost. Follows Surfaces'
+ * Tint and Noise.
  */
 @Composable
 fun Modifier.glass(shape: Shape): Modifier {
-    val c = WT.c
-    val t = com.wetune.Settings.glassTint.coerceIn(0, 100) / 100f
-    val fill = if (c.dark) Color.White.copy(alpha = 0.03f + 0.1f * t) else Color.White.copy(alpha = 0.3f + 0.6f * t)
-    val noise = remember { androidx.compose.ui.graphics.ShaderBrush(androidx.compose.ui.graphics.ImageShader(grain, androidx.compose.ui.graphics.TileMode.Repeated, androidx.compose.ui.graphics.TileMode.Repeated)) }
-    return clip(shape).drawBehind { drawRect(fill); drawRect(noise, alpha = if (c.dark) 0.5f else 0.3f) }
+    val fill = glassFill()
+    val alpha = grainAlpha()
+    val noise = remember { grainBrush() }
+    return clip(shape).drawBehind { drawRect(fill); drawRect(noise, alpha = alpha) }
 }
+
+/** The grain's strength on [glass] surfaces (Surfaces › Noise; 50 % = the original look). */
+@Composable
+fun grainAlpha(): Float = ((if (WT.c.dark) 0.5f else 0.3f) * com.wetune.Settings.glassNoise.coerceIn(0, 100) / 50f).coerceAtMost(1f)
+
+/** [glass]'s fill, for surfaces that draw their own shape (the album page's list sheet). */
+@Composable
+fun glassFill(): Color {
+    val t = com.wetune.Settings.glassTint.coerceIn(0, 100) / 100f
+    return if (WT.c.dark) Color.White.copy(alpha = 0.03f + 0.1f * t) else Color.White.copy(alpha = 0.3f + 0.6f * t)
+}
+
+fun grainBrush() = androidx.compose.ui.graphics.ShaderBrush(androidx.compose.ui.graphics.ImageShader(grain, androidx.compose.ui.graphics.TileMode.Repeated, androidx.compose.ui.graphics.TileMode.Repeated))
 
 /**
  * A frosted surface: what lies beneath shows through, blurred. Falls back to a near-solid fill without blur.
@@ -123,12 +143,12 @@ fun Txt(text: String, style: TextStyle, modifier: Modifier = Modifier, color: Co
 
 /** Icon-only button, 44dp target. [circle] puts it on the translucent round chip used in Now Playing headers. */
 @Composable
-fun IconBtn(ic: Ic, label: String, modifier: Modifier = Modifier, tint: Color = WT.c.on, size: Dp = 22.dp, circle: Boolean = false, onClick: () -> Unit) {
+fun IconBtn(ic: Ic, label: String, modifier: Modifier = Modifier, tint: Color = WT.c.on, size: Dp = 22.dp, circle: Boolean = false, frosted: Boolean = false, onClick: () -> Unit) {
     Box(
         modifier.size(44.dp).press(label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        if (circle) Box(Modifier.size(32.dp).background(WT.c.chip, CircleShape), contentAlignment = Alignment.Center) { Icon(ic, tint, size) }
+        if (circle) Box(Modifier.size(32.dp).then(if (frosted) Modifier.frost(CircleShape) else Modifier.glass(CircleShape)), contentAlignment = Alignment.Center) { Icon(ic, tint, size) }
         else Icon(ic, tint, size)
     }
 }
@@ -149,7 +169,7 @@ fun Pill(text: String, selected: Boolean, ic: Ic? = null, modifier: Modifier = M
     val c = WT.c
     val fg = if (selected) c.onPrimary else c.on
     Row(
-        modifier.height(36.dp).clip(CircleShape).background(if (selected) c.primary else c.chip).press(text, onClick = onClick).padding(horizontal = 14.dp),
+        modifier.height(36.dp).then(if (selected) Modifier.clip(CircleShape).background(c.primary) else Modifier.glass(CircleShape)).press(text, onClick = onClick).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (ic != null) Icon(ic, fg, 16.dp)
@@ -172,14 +192,21 @@ fun BigButton(text: String, ic: Ic?, primary: Boolean, modifier: Modifier = Modi
 }
 
 @Composable
-fun SectionHeader(title: String, modifier: Modifier = Modifier, onMore: (() -> Unit)? = null) {
+fun SectionHeader(title: String, modifier: Modifier = Modifier, strap: String = "", onMore: (() -> Unit)? = null) {
     Row(
         modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 10.dp)
             .then(if (onMore != null) Modifier.press("$title, see all", onClick = onMore) else Modifier),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Txt(title, Type.section)
-        if (onMore != null) Icon(Icons.Chevron, WT.c.onSecondary, 16.dp)
+        // [strap]: the small line some shelves carry above their title ("SIMILAR TO")
+        Column(Modifier.weight(1f, fill = false)) {
+            if (strap.isNotEmpty()) Txt(strap, Type.caption, color = WT.c.onSecondary)
+            // the arrow sits in the title's own line, centred on it (not on the strap, not on the row's bottom edge)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Txt(title, Type.section, Modifier.weight(1f, fill = false))
+                if (onMore != null) Icon(Icons.Chevron, WT.c.onSecondary, 16.dp)
+            }
+        }
     }
 }
 
@@ -188,7 +215,7 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, onMore: (() -> U
  * [swipe]: slide right to add it to the queue, left to play it next (off in rows that sit in a sideways-scrolling shelf).
  */
 @Composable
-fun TrackRow(t: Track, modifier: Modifier = Modifier, index: Int? = null, swipe: Boolean = true, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
+fun TrackRow(t: Track, modifier: Modifier = Modifier, index: Int? = null, swipe: Boolean = true, ring: Boolean = false, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
     val c = WT.c
     val current = Playback.current?.id == t.id
     val dx = remember { androidx.compose.animation.core.Animatable(0f) }
@@ -201,7 +228,7 @@ fun TrackRow(t: Track, modifier: Modifier = Modifier, index: Int? = null, swipe:
             SwipeAction(Icons.Queue, "Queue", Alignment.CenterStart, { dx.value }, reach)
             SwipeAction(Icons.PlayNext, "Play next", Alignment.CenterEnd, { -dx.value }, reach)
         }
-        TrackRowContent(t, current, index, trailing, onClick, Modifier.graphicsLayer { translationX = dx.value }.then(
+        TrackRowContent(t, current, index, ring, trailing, onClick, Modifier.graphicsLayer { translationX = dx.value }.then(
             if (!swipe) Modifier else Modifier.pointerInput(t.id) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
@@ -254,17 +281,24 @@ internal fun androidx.compose.foundation.layout.BoxScope.SwipeAction(ic: Ic, lab
 }
 
 @Composable
-private fun TrackRowContent(t: Track, current: Boolean, index: Int?, trailing: (@Composable () -> Unit)?, onClick: () -> Unit, modifier: Modifier) {
+private fun TrackRowContent(t: Track, current: Boolean, index: Int?, ring: Boolean, trailing: (@Composable () -> Unit)?, onClick: () -> Unit, modifier: Modifier) {
     val c = WT.c
     Row(
         modifier.fillMaxWidth().height(58.dp).press(onLongClick = { TrackMenu.show(t) }, scale = 0.985f, onClick = onClick).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (index != null) Box(Modifier.width(24.dp), contentAlignment = Alignment.Center) {
-            if (current) Icon(Icons.Audio, c.on, 16.dp) else Txt("$index", Type.sub, color = c.onSecondary)
-        } else Box {
-            Cover(t.art, 48.dp, 6.dp)
-            if (current) Box(Modifier.size(48.dp).background(Color(0x66000000), RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Audio, Color.White, 18.dp) }
+            if (current) { if (ring) ProgressRing(24.dp, c.on); Icon(Icons.Audio, c.on, if (ring) 12.dp else 16.dp) }
+            else Txt("$index", Type.sub, color = c.onSecondary)
+        } else Box(contentAlignment = Alignment.Center) {
+            // on album / playlist pages (ring) a video keeps its 16:9 frame (64×36) instead of a square crop; its title sits 16dp further in
+            val w = if (ring && com.wetune.youtube.isVideoArt(t.art)) 64.dp else 48.dp
+            val h = if (w > 48.dp) 36.dp else 48.dp
+            AsyncImage(t.art, null, Modifier.size(w, h).clip(RoundedCornerShape(6.dp)).background(c.surface), contentScale = ContentScale.Crop)
+            if (current) Box(Modifier.size(w, h).background(Color(0x66000000), RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+                if (ring) ProgressRing(36.dp, Color.White)
+                Icon(Icons.Audio, Color.White, if (ring) 14.dp else 18.dp)
+            }
         }
         Column(Modifier.weight(1f)) {
             Txt(t.title, Type.row)
@@ -272,6 +306,23 @@ private fun TrackRowContent(t: Track, current: Boolean, index: Int?, trailing: (
         }
         if (trailing != null) trailing() else IconBtn(Icons.More, "More for ${t.title}", tint = c.onSecondary, size = 18.dp) { TrackMenu.show(t) }
     }
+}
+
+/** The mini player's progress ring (a faint track, the played part bright) for the playing row; position changes only redraw it. */
+@Composable
+private fun ProgressRing(size: Dp, ink: Color) {
+    val pos = com.wetune.rememberPosition()
+    Spacer(Modifier.size(size).drawBehind {
+        val sw = 2.dp.toPx()
+        val r = this.size.minDimension / 2f - sw / 2f
+        drawCircle(ink.copy(alpha = 0.18f), r, style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
+        val d = Playback.duration()
+        if (d > 0) drawArc(
+            ink, -90f, 360f * (pos.value.toFloat() / d).coerceIn(0f, 1f), false,
+            androidx.compose.ui.geometry.Offset(center.x - r, center.y - r), androidx.compose.ui.geometry.Size(r * 2f, r * 2f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(sw, cap = androidx.compose.ui.graphics.StrokeCap.Round),
+        )
+    })
 }
 
 /** 150dp square tile for albums / playlists / artists (artists are round). */

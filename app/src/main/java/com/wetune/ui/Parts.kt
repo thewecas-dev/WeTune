@@ -268,7 +268,7 @@ fun ProfileButton() {
     val a = com.wetune.youtube.Sync.account
     Box(Modifier.size(44.dp).press(if (a != null) "Profile: ${a.name}" else "Profile") { Nav.select(Tab.You) }, contentAlignment = Alignment.Center) {
         if (a?.photo != null) Cover(a.photo, 34.dp, 17.dp, description = null)
-        else Box(Modifier.size(34.dp).clip(CircleShape).background(c.chip), contentAlignment = Alignment.Center) { Icon(Icons.You, c.on, 18.dp) }
+        else Box(Modifier.size(34.dp).glass(CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.You, c.on, 18.dp) }
     }
 }
 
