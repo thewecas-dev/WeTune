@@ -496,8 +496,8 @@ internal fun greeting(name: String?, hour: Int = java.util.Calendar.getInstance(
 @Composable
 private fun TopBar() = Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = statusTop() + 6.dp), verticalAlignment = Alignment.CenterVertically) {
     AppMark()
-    Txt(greeting(Sync.account?.name), type(19.sp, 600, family = Outfit), Modifier.padding(start = 6.dp).weight(1f, fill = false))
-    Spacer(Modifier.weight(1f))
+    // the greeting takes all the room between (one line, ellipsized), so the profile always sits at the end
+    Txt(greeting(Sync.account?.name), type(19.sp, 600, family = Outfit), Modifier.padding(start = 6.dp, end = 8.dp).weight(1f))
     ProfileButton()
 }
 
