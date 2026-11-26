@@ -42,6 +42,7 @@ object Nav {
 
     fun open(r: Route) {
         move = Move.Push
+        if (r is Route.Collection) com.wetune.Settings.addRecent(r.card) // Search's "Recently played"
         stacks.getValue(tab).add(r)
     }
 

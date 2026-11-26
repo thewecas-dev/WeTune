@@ -15,6 +15,7 @@ data class Track(
     val art: String? = null,
     val durationMs: Long = 0,
     val setVideoId: String? = null, // YouTube playlist entry id, needed to remove it from a playlist
+    val views: String = "", // "12M views", as a search result gives it (not saved)
 ) {
     val id: String get() = "$source:$ref"
 
