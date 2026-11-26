@@ -4,6 +4,8 @@
 
 A music player for Android with true two-way YouTube Music sync, synced lyrics, and a Now Playing screen that changes shape.
 
+Built from scratch: WeTune isn't a fork or reskin of another player. Every screen, the player and the sync were written for this app.
+
 <p align="center"><a href="https://github.com/thewecas-dev/WeTune/releases/latest">Download</a> · <a href="https://github.com/thewecas-dev/WeTune">Star on GitHub</a> · <a href="https://www.instagram.com/thewecas/">Instagram @thewecas</a></p>
 
 ## Features
